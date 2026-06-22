@@ -89,7 +89,7 @@
                 <li><a class="nav-link" href="{{ route('products.index') }}">All Products</a></li>
               @endcan
               @if(auth()->user()->can('shopify_stores.index'))
-                <li><a class="nav-link" href="{{ route('shopify.settings') }}">Store Stores</a></li>
+                <li><a class="nav-link" href="{{ route('shopify.settings') }}">Shopify Stores</a></li>
             @endif
             </ul>
           </li>
