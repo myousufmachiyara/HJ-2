@@ -261,7 +261,7 @@ class ProductionController extends Controller
         $pdf->setCellPadding(1.5);
 
         $logoPath = public_path('assets/img/hj-logo.jpg');
-        if (file_exists($logoPath)) $pdf->Image($logoPath, 10, 10, 30);
+        if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
         $pdf->SetXY(130, 12);
         $pdf->writeHTML('
@@ -357,7 +357,7 @@ class ProductionController extends Controller
         $pdf->setCellPadding(1.5);
 
         $logoPath = public_path('assets/img/hj-logo.jpg');
-        if (file_exists($logoPath)) $pdf->Image($logoPath, 10, 10, 30);
+        if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
         $pdf->SetXY(130, 12);
         $pdf->writeHTML('
@@ -433,7 +433,7 @@ class ProductionController extends Controller
         $pdf->setCellPadding(1.5);
 
         $logoPath = public_path('assets/img/hj-logo.jpg');
-        if (file_exists($logoPath)) $pdf->Image($logoPath, 10, 10, 30);
+        if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
         // ── Info Box ──────────────────────────────────────────────────────
         $pdf->SetXY(130, 12);

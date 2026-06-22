@@ -177,9 +177,7 @@ class VoucherController extends Controller
 
         // Logo
         $logoPath = public_path('assets/img/hj-logo.jpg');
-        if (file_exists($logoPath)) {
-            $pdf->Image($logoPath, 10, 10, 30);
-        }
+        if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
         // Info box
         $pdf->SetXY(130, 12);

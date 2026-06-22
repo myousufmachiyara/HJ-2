@@ -269,10 +269,7 @@ class PosController extends Controller
         $pdf->setCellPadding(1);
 
         $logoPath = public_path('assets/img/hj-logo.jpg');
-        if (file_exists($logoPath)) {
-            $pdf->Image($logoPath, 20, 4, 40);
-            $pdf->Ln(18);
-        }
+        if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
         $pdf->SetFont('helvetica', 'B', 10);
         $pdf->Cell(0, 5, 'JILD', 0, 1, 'C');
