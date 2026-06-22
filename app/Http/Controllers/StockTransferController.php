@@ -173,7 +173,7 @@ class StockTransferController extends Controller
             $pdf->setCellPadding(1.5);
 
             $logoPath = public_path('assets/img/hj-logo.jpg');
-            if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 10, 50);
+            if (file_exists($logoPath)) $pdf->Image($logoPath, 5, 11, 50);
 
             $pdf->SetXY(120, 12);
             $transferInfo = '
