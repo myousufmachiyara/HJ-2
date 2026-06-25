@@ -43,6 +43,7 @@
                             <th width="5%">Select</th>
                             <th>Product</th>
                             <th>Variation (SKU)</th>
+                            <th>Barcode</th>
                             <th>Selling Price</th>
                             <th>Quantity</th>
                         </tr>
@@ -56,6 +57,7 @@
                                     </td>
                                     <td class="product-name">{{ $variation->product->name }}</td>
                                     <td>{{ $variation->sku }}</td>
+                                    <td>{{ $variation->barcode ?? $variation->product->barcode ?? '-' }}</td>
                                     <td>{{ number_format($variation->product->selling_price, 2) }}</td>
                                     <td>
                                         <input type="number" name="quantity[{{ $variation->id }}]" value="1" min="1" class="form-control form-control-sm">

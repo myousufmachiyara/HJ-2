@@ -28,6 +28,11 @@
               @error('name')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2">
+              <label>Brand</label>
+              <input type="text" name="brand" class="form-control" value="{{ old('brand') }}" placeholder="e.g. Generic Leather Co">
+              @error('brand')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-md-2">
               <label>Category *</label>
               <select name="category_id" data-plugin-selecttwo class="form-control select2-js" required>
                 <option value="" disabled selected>Select Category</option>
@@ -58,7 +63,18 @@
               <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku') }}" required>
               @error('sku')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
-            <div class="col-md-2">
+            <div class="col-md-2 mt-3">
+              <label>Barcode</label>
+              <input type="text" name="barcode" class="form-control" value="{{ old('barcode') }}" placeholder="Scan or type your own barcode">
+              <small class="text-muted">Manual — leave blank if not used</small>
+              @error('barcode')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>SKU Opening Date</label>
+              <input type="date" name="sku_opening_date" class="form-control" value="{{ old('sku_opening_date', date('Y-m-d')) }}">
+              @error('sku_opening_date')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-md-2 mt-3">
               <label>Item Type *</label>
               <select name="item_type" class="form-control" required>
                 <option value="" disabled selected>Item Type</option>
@@ -78,6 +94,11 @@
               </select>
             </div>
             <div class="col-md-2 mt-3">
+              <label>Weight</label>
+              <input type="number" step="any" name="weight" class="form-control" value="{{ old('weight') }}" placeholder="e.g. kg">
+              @error('weight')<div class="text-danger">{{ $message }}</div>@enderror
+            </div>
+            <div class="col-md-2 mt-3">
               <label>Consumption <small class="text-muted">(raw/pc)</small></label>
               <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', '0') }}">
             </div>
@@ -94,6 +115,11 @@
             <div class="col-md-2 mt-3">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', '0.00') }}">
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>Compare At Price <small class="text-muted">(discount)</small></label>
+              <input type="number" step="any" name="compare_at_price" class="form-control" value="{{ old('compare_at_price') }}" placeholder="Original price before discount">
+              @error('compare_at_price')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2 mt-3">
               <label>Opening Stock</label>
@@ -159,6 +185,7 @@
                     <th>Variation</th>
                     <th>Stock</th>
                     <th>SKU</th>
+                    <th>Barcode</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -211,6 +238,7 @@ $(document).ready(function () {
           <td>${label}${inputs}</td>
           <td><input type="number" name="variations[${index}][stock_quantity]" step="any" class="form-control" value="0"></td>
           <td><input type="text" name="variations[${index}][sku]" class="form-control" value="${mainSku}-${label}"></td>
+          <td><input type="text" name="variations[${index}][barcode]" class="form-control" placeholder="Manual barcode"></td>
           <td><button type="button" class="btn btn-sm btn-danger remove-variation">X</button></td>
         </tr>
       `);

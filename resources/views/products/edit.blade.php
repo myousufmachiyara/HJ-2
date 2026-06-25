@@ -26,6 +26,10 @@
               <input type="text" name="name" class="form-control" required value="{{ old('name', $product->name) }}">
             </div>
             <div class="col-md-2">
+              <label>Brand</label>
+              <input type="text" name="brand" class="form-control" value="{{ old('brand', $product->brand) }}" placeholder="e.g. Generic Leather Co">
+            </div>
+            <div class="col-md-2">
               <label>Category *</label>
               <select name="category_id" class="form-control select2-js" required>
                 @foreach($categories as $cat)
@@ -55,6 +59,16 @@
               <label>SKU</label>
               <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku', $product->sku) }}">
             </div>
+            <div class="col-md-2 mt-3">
+              <label>Barcode</label>
+              <input type="text" name="barcode" class="form-control" value="{{ old('barcode', $product->barcode) }}" placeholder="Scan or type your own barcode">
+              <small class="text-muted">Manual — leave blank if not used</small>
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>SKU Opening Date</label>
+              <input type="date" name="sku_opening_date" class="form-control"
+                     value="{{ old('sku_opening_date', $product->sku_opening_date ? $product->sku_opening_date->format('Y-m-d') : '') }}">
+            </div>
             <div class="col-md-2">
               <label>Item Type</label>
               <select name="item_type" class="form-control select2-js">
@@ -75,6 +89,10 @@
               </select>
             </div>
             <div class="col-md-2 mt-3">
+              <label>Weight</label>
+              <input type="number" step="any" name="weight" class="form-control" value="{{ old('weight', $product->weight) }}">
+            </div>
+            <div class="col-md-2 mt-3">
               <label>Consumption <small class="text-muted">(raw/pc)</small></label>
               <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', $product->consumption) }}">
             </div>
@@ -91,6 +109,10 @@
             <div class="col-md-2 mt-3">
               <label>Selling Price</label>
               <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', $product->selling_price) }}">
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>Compare At Price <small class="text-muted">(discount)</small></label>
+              <input type="number" step="any" name="compare_at_price" class="form-control" value="{{ old('compare_at_price', $product->compare_at_price) }}" placeholder="Original price before discount">
             </div>
             <div class="col-md-2 mt-3">
               <label>Opening Stock</label>
@@ -144,15 +166,19 @@
                   <div class="variation-block border p-2 mb-3 existing-variation">
                     <input type="hidden" name="variations[{{ $i }}][id]" value="{{ $variation->id }}">
                     <div class="row">
-                      <div class="col-md-4">
+                      <div class="col-md-3">
                         <label>SKU</label>
                         <input type="text" name="variations[{{ $i }}][sku]" class="form-control sku-field" value="{{ $variation->sku }}">
+                      </div>
+                      <div class="col-md-2">
+                        <label>Barcode</label>
+                        <input type="text" name="variations[{{ $i }}][barcode]" class="form-control" value="{{ $variation->barcode }}" placeholder="Manual barcode">
                       </div>
                       <div class="col-md-2">
                         <label>Stock</label>
                         <input type="number" step="any" name="variations[{{ $i }}][stock_quantity]" class="form-control" value="{{ $variation->stock_quantity }}">
                       </div>
-                      <div class="col-md-5">
+                      <div class="col-md-4">
                         <label>Attributes</label>
                         <select name="variations[{{ $i }}][attributes][]" multiple class="form-control select2-js variation-attributes">
                           @foreach($attributes as $attribute)
@@ -209,15 +235,19 @@ $(document).ready(function () {
     const html = `
       <div class="variation-block border p-2 mb-3">
         <div class="row">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label>SKU</label>
             <input type="text" name="new_variations[${newVariationIndex}][sku]" class="form-control sku-field">
+          </div>
+          <div class="col-md-2">
+            <label>Barcode</label>
+            <input type="text" name="new_variations[${newVariationIndex}][barcode]" class="form-control" placeholder="Manual barcode">
           </div>
           <div class="col-md-2">
             <label>Stock</label>
             <input type="number" step="any" name="new_variations[${newVariationIndex}][stock_quantity]" value="0" class="form-control">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label>Attributes</label>
             <select name="new_variations[${newVariationIndex}][attributes][]" multiple class="form-control select2-js variation-attributes">
               @foreach($attributes as $attribute)

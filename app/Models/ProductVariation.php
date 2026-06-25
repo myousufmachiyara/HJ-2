@@ -16,16 +16,8 @@ class ProductVariation extends Model
         'stock_quantity',
     ];
 
-    protected static function booted()
-    {
-        static::creating(function ($variation) {
-            if (empty($variation->barcode)) {
-                $product = $variation->product;
-                $prefix  = strtoupper($product->item_type ?? 'PRD') . '-VAR-';
-                $variation->barcode = generateGlobalBarcode($prefix);
-            }
-        });
-    }
+    // Auto barcode-generation removed — barcode is now entered manually
+    // through the create/edit variation rows or via bulk import.
 
     public function product()
     {

@@ -17,8 +17,11 @@ return new class extends Migration
             $table->unsignedBigInteger('subcategory_id')->nullable();
             $table->string('name');
             $table->unsignedBigInteger('vendor_id')->nullable();
+            $table->string('brand')->nullable();
 
             $table->string('sku')->unique();
+            $table->date('sku_opening_date')->nullable();
+
             $table->string('barcode')->nullable();
             $table->text('description')->nullable();
 
@@ -27,7 +30,10 @@ return new class extends Migration
             $table->decimal('opening_stock', 10, 2)->default(0);
             $table->decimal('cost_price', 10, 2)->default(0);
             $table->decimal('selling_price', 10, 2)->default(0);
+            $table->decimal('compare_at_price', 10, 2)->nullable();
+
             $table->decimal('consumption', 10, 2)->default(0);
+            $table->decimal('weight', 10, 2)->nullable();
 
             // Stock control
             $table->decimal('reorder_level', 10, 2)->default(0);

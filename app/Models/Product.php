@@ -13,14 +13,18 @@ class Product extends Model
         'category_id',
         'subcategory_id',
         'vendor_id',
+        'brand',
         'name',
         'sku',
         'barcode',
+        'sku_opening_date',
         'description',
+        'weight',
         'cmt_cost',
         'cost_price',
         'opening_stock',
         'selling_price',
+        'compare_at_price',
         'consumption',
         'reorder_level',
         'max_stock_level',
@@ -30,20 +34,12 @@ class Product extends Model
         'is_active',
     ];
 
-    protected static function booted()
-    {
-        static::creating(function ($product) {
-            if (empty($product->barcode)) {
-                $prefix = match($product->item_type) {
-                    'fg'      => 'FG-',
-                    'raw'     => 'RAW-',
-                    'service' => 'SRV-',
-                    default   => 'PRD-',
-                };
-                $product->barcode = generateGlobalBarcode($prefix);
-            }
-        });
-    }
+    protected $casts = [
+        'sku_opening_date' => 'date',
+    ];
+
+    // NOTE: the auto barcode-generation booted() hook has been removed on purpose.
+    // Barcode is now a manually entered field (see create/edit forms + controller).
 
     public function category()
     {

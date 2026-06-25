@@ -33,6 +33,7 @@
                 <th>S.No</th>
                 <th>Image</th>
                 <th>Item Name</th>
+                <th>Brand</th>
                 <th>SKU</th>
                 <th>Category</th>
                 <th>Action</th>
@@ -50,6 +51,7 @@
                   @endif
                 </td>
                 <td>{{ $product->name }}</td>
+                <td>{{ $product->brand ?? '-' }}</td>
                 <td>{{ $product->sku }}</td>
                 <td>{{ $product->category->name ?? '-' }}</td>
                 <td>

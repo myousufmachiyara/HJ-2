@@ -13,7 +13,7 @@
 
         .barcode-label {
             width: 180px;
-            height: 140px;
+            height: 160px;
             border: 1px solid #ccc;
             padding: 8px;
             margin: 8px;
@@ -38,6 +38,18 @@
             word-wrap: break-word;
         }
 
+        .barcode-label .brand {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #555;
+        }
+
+        .barcode-label .compare-price {
+            text-decoration: line-through;
+            color: #888;
+            font-size: 11px;
+        }
+
         .no-print {
             text-align: center;
             margin-bottom: 20px;
@@ -55,10 +67,16 @@
 <div class="barcode-container">
     @foreach($barcodes as $barcode)
         <div class="barcode-label">
+            @if(!empty($barcode['brand']))
+                <small class="brand">{{ $barcode['brand'] }}</small>
+            @endif
             <strong>{{ $barcode['product'] }}</strong>
             <small>{{ $barcode['variation'] }}</small>
             <img src="data:image/png;base64,{{ $barcode['barcodeImage'] }}" alt="barcode">
             <small>{{ $barcode['barcodeText'] }}</small>
+            @if(!empty($barcode['comparePrice']))
+                <small class="compare-price">Rs. {{ $barcode['comparePrice'] }}</small>
+            @endif
             <strong>Rs. {{ $barcode['price'] }}</strong>
         </div>
     @endforeach
