@@ -11,6 +11,7 @@ class StockTransfer extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'type',          // ← ADD
         'date',
         'from_location_id',
         'to_location_id',
@@ -37,5 +38,21 @@ class StockTransfer extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    // Convenience: is this a customer-facing document (DC or return DC)?
+    public function isDeliveryChallan(): bool
+    {
+        return in_array($this->type, ['dc', 'return_dc'], true);
+    }
+
+    // Human label for lists/PDF headers.
+    public function typeLabel(): string
+    {
+        return match ($this->type) {
+            'dc'        => 'Delivery Challan',
+            'return_dc' => 'Return Delivery Challan',
+            default     => 'Stock Transfer',
+        };
     }
 }

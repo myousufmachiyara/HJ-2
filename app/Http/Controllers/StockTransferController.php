@@ -45,6 +45,7 @@ class StockTransferController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+            'type' => 'nullable|in:transfer,dc,return_dc',
             'date' => 'required|date',
             'from_location_id' => 'required|exists:locations,id',
             'to_location_id' => 'required|exists:locations,id',
@@ -58,10 +59,10 @@ class StockTransferController extends Controller
             \DB::beginTransaction();
 
             $transfer = StockTransfer::create([
+                'type' => $request->type ?? 'transfer',
                 'date' => $request->date,
                 'remarks' => $request->remarks,
                 'from_location_id' => $request->from_location_id,
-                'to_location_id' => $request->to_location_id,
                 'to_location_id' => $request->to_location_id,
                 'created_by' => Auth::id(),
             ]);
@@ -102,6 +103,7 @@ class StockTransferController extends Controller
     public function update(Request $request, $id)
     {
         $request->validate([
+            'type' => 'nullable|in:transfer,dc,return_dc',
             'date' => 'required|date',
             'from_location_id' => 'required|exists:locations,id',
             'to_location_id' => 'required|exists:locations,id',
@@ -116,6 +118,7 @@ class StockTransferController extends Controller
 
             $transfer = StockTransfer::findOrFail($id);
             $transfer->update([
+                'type' => $request->type ?? 'transfer',
                 'date' => $request->date,
                 'from_location_id' => $request->from_location_id,
                 'to_location_id' => $request->to_location_id,
@@ -148,26 +151,35 @@ class StockTransferController extends Controller
         try {
             $transfer = StockTransfer::findOrFail($id);
             $transfer->delete();
-            return redirect()->route('stock_transfers.index')->with('success', 'Stock transfer deleted successfully.');
+            return redirect()->route('stock_transfer.index')->with('success', 'Stock transfer deleted successfully.');
         } catch (\Exception $e) {
             Log::error('Failed to delete stock transfer: '.$e->getMessage());
             return back()->with('error', 'Failed to delete stock transfer.');
         }
     }
 
-    // Print stock transfer PDF
+    // Print stock transfer / delivery challan PDF
     public function print($id)
     {
         try {
             $transfer = StockTransfer::with(['fromLocation', 'toLocation', 'details.product', 'details.variation'])
                 ->findOrFail($id);
 
+            // Label switches based on the transfer type.
+            $docLabel = match ($transfer->type) {
+                'dc'        => 'Delivery Challan',
+                'return_dc' => 'Return Delivery Challan',
+                default     => 'Stock Transfer',
+            };
+            // "#" caption in the info table (Challan # for DCs, Transfer # otherwise).
+            $refCaption = in_array($transfer->type, ['dc', 'return_dc'], true) ? 'Challan #' : 'Transfer #';
+
             $pdf = new \TCPDF();
             $pdf->setPrintHeader(false);
             $pdf->setPrintFooter(false);
             $pdf->SetCreator('Your App');
             $pdf->SetAuthor('Your Company');
-            $pdf->SetTitle('Stock Transfer #' . $transfer->id);
+            $pdf->SetTitle($docLabel . ' #' . $transfer->id);
             $pdf->SetMargins(10, 10, 10);
             $pdf->AddPage();
             $pdf->setCellPadding(1.5);
@@ -179,7 +191,7 @@ class StockTransferController extends Controller
             $transferInfo = '
             <table cellpadding="4" border="1" style="font-size:10px; line-height:14px; border-collapse:collapse;">
                 <tr>
-                    <td><b>Transfer #</b></td>
+                    <td><b>' . $refCaption . '</b></td>
                     <td>' . $transfer->id . '</td>
                 </tr>
                 <tr>
@@ -204,7 +216,7 @@ class StockTransferController extends Controller
             $pdf->SetFillColor(23, 54, 93);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->SetFont('helvetica', '', 12);
-            $pdf->Cell(50, 8, 'Stock Transfer', 0, 1, 'C', 1);
+            $pdf->Cell(60, 8, $docLabel, 0, 1, 'C', 1);
             $pdf->SetTextColor(0, 0, 0);
 
             $pdf->Ln(5);
@@ -247,7 +259,8 @@ class StockTransferController extends Controller
             $pdf->SetXY(130, $yPos + 2);
             $pdf->Cell($lineWidth, 6, 'Received By', 0, 0, 'C');
 
-            return $pdf->Output('stock_transfer_' . $transfer->id . '.pdf', 'I');
+            $fileName = strtolower(str_replace(' ', '_', $docLabel)) . '_' . $transfer->id . '.pdf';
+            return $pdf->Output($fileName, 'I');
         } catch (\Exception $e) {
             Log::error('Failed to print stock transfer: '.$e->getMessage());
             return back()->with('error', 'Failed to generate stock transfer PDF.');

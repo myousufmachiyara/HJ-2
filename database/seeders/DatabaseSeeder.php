@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\HeadOfAccounts;
 use App\Models\SubHeadOfAccounts;
 use App\Models\ChartOfAccounts;
+use App\Models\Location;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use App\Models\MeasurementUnit;
@@ -224,6 +225,90 @@ class DatabaseSeeder extends Seeder
                 'updated_by'   => $userId,
             ]));
         }
+
+        // ---------------------
+        // VENDORS (Accounts Payable)
+        // ---------------------
+        // Seeded as account_type = 'vendor' under the "Accounts Payable" sub-head (id 6).
+        // The "Details" column is mapped to vendor_type (goods → product, labour → service)
+        // and the original detail is preserved in remarks.
+        $vendorShoaId = 6;
+
+        $vendorTypeMap = [
+            'fabric'     => 'product',
+            'readymade'  => 'product',
+            'bags'       => 'product',
+            'packaging'  => 'product',
+            'embroidery' => 'service',
+            'stitching'  => 'service',
+        ];
+
+        $vendors = [
+            ['name' => 'Talha Anis',      'detail' => 'Fabric'],
+            ['name' => 'Ahmed',           'detail' => 'Fabric'],
+            ['name' => 'shahbaz mosk',    'detail' => 'Fabric'],
+            ['name' => 'My fashion Asif', 'detail' => 'readymade'],
+            ['name' => 'Mujeeb',          'detail' => 'embroidery'],
+            ['name' => 'Faizullah',       'detail' => 'Fabric'],
+            ['name' => 'Nadim',           'detail' => 'stitching'],
+            ['name' => 'Bag mustansir',   'detail' => 'Bags'],
+            ['name' => 'Waqar Dulha',     'detail' => 'Fabric'],
+            ['name' => 'Zuhaib pasha',    'detail' => 'Packaging'],
+            ['name' => 'a.rehman',        'detail' => 'readymade'],
+            ['name' => 'sunny',           'detail' => 'stitching'],
+            ['name' => 'altaf',           'detail' => 'stitching'],
+            ['name' => 'asim abid',       'detail' => 'stitching'],
+            ['name' => 'i.r',             'detail' => 'readymade'],
+        ];
+
+        $vendorSubHead = SubHeadOfAccounts::findOrFail($vendorShoaId);
+        $vendorPrefix  = $vendorSubHead->hoa_id . str_pad($vendorSubHead->id, 2, '0', STR_PAD_LEFT); // "206"
+
+        // Continue after the highest existing code for this prefix (safe if data already exists).
+        $vendorSeq = ChartOfAccounts::withTrashed()
+            ->where('account_code', 'like', $vendorPrefix . '%')
+            ->pluck('account_code')
+            ->map(fn ($code) => intval(substr($code, strlen($vendorPrefix))))
+            ->max() ?? 0;
+
+        foreach ($vendors as $v) {
+            $vendorSeq++;
+            $accountCode = $vendorPrefix . str_pad($vendorSeq, 3, '0', STR_PAD_LEFT);
+            $vendorType  = $vendorTypeMap[strtolower(trim($v['detail']))] ?? 'none';
+
+            ChartOfAccounts::create([
+                'shoa_id'      => $vendorShoaId,
+                'account_code' => $accountCode,
+                'name'         => $v['name'],
+                'account_type' => 'vendor',
+                'vendor_type'  => $vendorType,
+                'receivables'  => 0,
+                'payables'     => 0,
+                'credit_limit' => 0,
+                'opening_date' => now()->toDateString(),
+                'remarks'      => 'Supplies: ' . $v['detail'],
+                'address'      => null,
+                'contact_no'   => null,
+                'created_by'   => $userId,
+                'updated_by'   => $userId,
+            ]);
+        }
+
+        // ---------------------
+        // CUSTOMER STOCK LOCATIONS (backfill)
+        // ---------------------
+        // Ensure every customer account has a stock-holder location.
+        // On a fresh seed there are usually no customer accounts yet, so this
+        // typically syncs 0 — it's here so the logic lives in one place and any
+        // customers added to the seed (or already present) get their location.
+        $syncedCustomerLocations = 0;
+        ChartOfAccounts::where('account_type', 'customer')->get()
+            ->each(function ($account) use (&$syncedCustomerLocations) {
+                if (Location::syncForCustomer($account)) {
+                    $syncedCustomerLocations++;
+                }
+            });
+        $this->command->info("Customer stock locations synced: {$syncedCustomerLocations}");
 
         Attribute::insert([
             ['id' => 1, 'name' => 'SIZE',           'slug' => 'size',           'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],

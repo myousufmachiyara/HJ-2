@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('name'); // Name of the account
             $table->string('trn')->nullable(); // Name of the account
             $table->string('account_type')->nullable();
+            $table->string('vendor_type')->nullable();
             $table->decimal('receivables', 15, 2)->default(0);
             $table->decimal('payables', 15, 2)->default(0);
             $table->decimal('credit_limit', 15, 2)->default(0);

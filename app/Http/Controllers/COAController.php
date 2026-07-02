@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\ChartOfAccounts;
 use App\Models\SubHeadOfAccounts;
+use App\Models\Location;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
@@ -27,6 +28,17 @@ class COAController extends Controller
         'expenses',
         'receivable',   // ← add: accounts that owe you money (loans given out)
         'payable',      // ← add: accounts you owe money to (loans taken)
+    ];
+
+    // ─────────────────────────────────────────────────────────────
+    // Vendor sub-classification. Only relevant when account_type = vendor.
+    // Must match the blade "Vendor Type" dropdown values exactly.
+    // ─────────────────────────────────────────────────────────────
+    private const VENDOR_TYPES = [
+        'product',
+        'service',
+        'both',
+        'none',
     ];
 
     public function index(Request $request)
@@ -59,6 +71,8 @@ class COAController extends Controller
                 ],
                 // FIX: validate against canonical list so junk values can't be saved
                 'account_type' => ['nullable', 'string', Rule::in(self::ACCOUNT_TYPES)],
+                // Vendor type: only required when the account is a vendor.
+                'vendor_type'  => ['nullable', Rule::in(self::VENDOR_TYPES), 'required_if:account_type,vendor'],
                 'receivables'  => 'required|numeric',
                 'payables'     => 'required|numeric',
                 'credit_limit' => 'required|numeric',
@@ -67,6 +81,9 @@ class COAController extends Controller
                 'address'      => 'nullable|string|max:250',
                 'contact_no'   => 'nullable|string|max:250',
             ]);
+
+            // Keep data clean: only store a vendor type for vendor accounts.
+            $vendorType = $request->account_type === 'vendor' ? $request->vendor_type : null;
 
             // ── Auto-generate account code ────────────────────────
             $subHead  = SubHeadOfAccounts::findOrFail($request->shoa_id);
@@ -90,6 +107,7 @@ class COAController extends Controller
                 'account_code' => $accountCode,
                 'name'         => $request->name,
                 'account_type' => $request->account_type,
+                'vendor_type'  => $vendorType,
                 'receivables'  => $request->receivables,
                 'payables'     => $request->payables,
                 'credit_limit' => $request->credit_limit,
@@ -102,6 +120,10 @@ class COAController extends Controller
             ]);
 
             Log::info('[COA] Account created', ['id' => $account->id, 'code' => $accountCode]);
+
+            // Ensure a stock-holder location exists for this account when it's a customer.
+            // Safe for all account types — non-customers simply return null and do nothing.
+            Location::syncForCustomer($account);
 
             return redirect()->route('coa.index')
                 ->with('success', 'Account created successfully.');
@@ -138,6 +160,7 @@ class COAController extends Controller
                     Rule::unique('chart_of_accounts')->ignore($id)->whereNull('deleted_at'),
                 ],
                 'account_type' => ['nullable', 'string', Rule::in(self::ACCOUNT_TYPES)],
+                'vendor_type'  => ['nullable', Rule::in(self::VENDOR_TYPES), 'required_if:account_type,vendor'],
                 'receivables'  => 'required|numeric',
                 'payables'     => 'required|numeric',
                 'credit_limit' => 'required|numeric',
@@ -147,12 +170,16 @@ class COAController extends Controller
                 'contact_no'   => 'nullable|string|max:250',
             ]);
 
+            // Keep data clean: only store a vendor type for vendor accounts.
+            $vendorType = $request->account_type === 'vendor' ? $request->vendor_type : null;
+
             $account = ChartOfAccounts::findOrFail($id);
 
             $account->update([
                 'shoa_id'      => $request->shoa_id,
                 'name'         => $request->name,
                 'account_type' => $request->account_type,
+                'vendor_type'  => $vendorType,
                 'receivables'  => $request->receivables,
                 'payables'     => $request->payables,
                 'credit_limit' => $request->credit_limit,
@@ -164,6 +191,10 @@ class COAController extends Controller
             ]);
 
             Log::info('[COA] Account updated', ['id' => $id, 'user' => auth()->id()]);
+
+            // Keep the customer's stock location in sync (created if newly a customer,
+            // renamed if the account name changed). refresh() so the sync sees new values.
+            Location::syncForCustomer($account->refresh());
 
             return redirect()->route('coa.index')
                 ->with('success', 'Account updated successfully.');

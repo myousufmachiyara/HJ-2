@@ -15,6 +15,7 @@ class ChartOfAccounts extends Model
         'name',
         'account_code',
         'account_type',
+        'vendor_type',   // ← ADD
         'receivables',
         'payables',
         'credit_limit',

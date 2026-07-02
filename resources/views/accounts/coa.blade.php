@@ -20,6 +20,14 @@
             'receivable' => 'Receivable (Loan Given)',    // ← add
             'payable'    => 'Payable (Loan Taken)',       // ← add
         ];
+
+        // ── Vendor sub-type list — shown only when account type is "vendor" ──
+        $vendorTypes = [
+            'product' => 'Product',
+            'service' => 'Service',
+            'both'    => 'Both',
+            'none'    => 'None',
+        ];
     @endphp
 
     <div class="row">
@@ -90,7 +98,12 @@
                                     <td><code>{{ $item->account_code }}</code></td>
                                     <td><strong>{{ $item->name }}</strong></td>
                                     <td>{{ $item->subHeadOfAccount->name ?? '—' }}</td>
-                                    <td><strong>{{ $accountTypes[$item->account_type] ?? ucfirst($item->account_type ?? '—') }}</strong></td>
+                                    <td>
+                                        <strong>{{ $accountTypes[$item->account_type] ?? ucfirst($item->account_type ?? '—') }}</strong>
+                                        @if($item->account_type === 'vendor' && $item->vendor_type)
+                                            <br><small class="text-muted">{{ $vendorTypes[$item->vendor_type] ?? ucfirst($item->vendor_type) }}</small>
+                                        @endif
+                                    </td>
                                     <td>{{ $item->contact_no ?? '—' }}</td>
                                     <td>{{ \Carbon\Carbon::parse($item->opening_date)->format('d-m-Y') }}</td>
                                     <td>{{ $item->remarks ?? '—' }}</td>
@@ -145,10 +158,20 @@
                                 {{-- FIX: standardized type list --}}
                                 <div class="col-lg-6 mb-2">
                                     <label>Account Type</label>
-                                    <select data-plugin-selecttwo class="form-control select2-js" name="account_type">
+                                    <select data-plugin-selecttwo id="add_account_type" class="form-control select2-js" name="account_type">
                                         <option value="" disabled selected>Select Account Type</option>
                                         @foreach($accountTypes as $value => $label)
                                             <option value="{{ $value }}">{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
+                                {{-- Vendor Type — shown only when Account Type = Vendor (plain select, no select2) --}}
+                                <div class="col-lg-6 mb-2 vendor-type-field" id="add_vendor_type_wrap" style="display:none;">
+                                    <label>Vendor Type <span class="text-danger">*</span></label>
+                                    <select class="form-control" name="vendor_type" id="add_vendor_type">
+                                        @foreach($vendorTypes as $value => $label)
+                                            <option value="{{ $value }}" {{ $value === 'none' ? 'selected' : '' }}>{{ $label }}</option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -251,6 +274,16 @@
                                     </select>
                                 </div>
 
+                                {{-- Vendor Type — shown only when Account Type = Vendor (plain select, no select2) --}}
+                                <div class="col-lg-6 mb-2 vendor-type-field" id="edit_vendor_type_wrap" style="display:none;">
+                                    <label>Vendor Type <span class="text-danger">*</span></label>
+                                    <select class="form-control" name="vendor_type" id="edit_vendor_type">
+                                        @foreach($vendorTypes as $value => $label)
+                                            <option value="{{ $value }}">{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
                                 <div class="col-lg-6 mb-2">
                                     <label>Sub-head of Account <span class="text-danger">*</span></label>
                                     <select id="edit_shoa_id" class="form-control select2-js"
@@ -321,6 +354,27 @@
     </div>
 
     <script>
+    // Show/hide the Vendor Type field based on the selected Account Type.
+    function toggleVendorType(typeVal, wrapId) {
+        const wrap = document.getElementById(wrapId);
+        if (!wrap) return;
+        wrap.style.display = (typeVal === 'vendor') ? '' : 'none';
+    }
+
+    $(document).ready(function () {
+        // Add modal: react to account-type changes (select2 fires 'change' on the native select)
+        $('#add_account_type').on('change', function () {
+            toggleVendorType($(this).val(), 'add_vendor_type_wrap');
+        });
+        // Edit modal: same behaviour
+        $('#edit_account_type').on('change', function () {
+            toggleVendorType($(this).val(), 'edit_vendor_type_wrap');
+        });
+
+        // Set initial visibility for the add modal on load
+        toggleVendorType($('#add_account_type').val(), 'add_vendor_type_wrap');
+    });
+
     function editAccount(id) {
         fetch('/coa/' + id + '/edit')
             .then(res => res.json())
@@ -340,9 +394,16 @@
                 $('#edit_address').val(data.address);
                 $('#edit_contact_no').val(data.contact_no);
 
-                // FIX: trigger('change') updates Select2 visual state
+                // Vendor type: default to "none" if not set
+                $('#edit_vendor_type').val(data.vendor_type || 'none');
+
+                // FIX: trigger('change') updates Select2 visual state.
+                // The account-type change handler also toggles the vendor-type field.
                 $('#edit_account_type').val(data.account_type).trigger('change');
                 $('#edit_shoa_id').val(data.shoa_id).trigger('change');
+
+                // Ensure vendor-type visibility matches the loaded account type
+                toggleVendorType(data.account_type, 'edit_vendor_type_wrap');
 
                 $.magnificPopup.open({
                     items: { src: '#editModal' },

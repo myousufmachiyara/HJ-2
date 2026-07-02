@@ -15,8 +15,11 @@ return new class extends Migration
             $table->id();
             $table->string('name')->unique();
             $table->string('code')->nullable();
+            $table->unsignedBigInteger('chart_of_account_id')->nullable();
             $table->timestamps();
             $table->softDeletes(); 
+
+            $table->foreign('chart_of_account_id')->references('id')->on('chart_of_accounts')->nullOnDelete();
         });
     }
 

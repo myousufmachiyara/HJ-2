@@ -25,6 +25,14 @@
         <div class="card-body">
           <div class="row mb-2">
             <div class="col-md-3">
+              <label>Type</label>
+              <select name="type" id="transferType" class="form-control select2-js" required>
+                <option value="transfer"  {{ ($transfer->type ?? 'transfer') == 'transfer'  ? 'selected' : '' }}>Internal Transfer</option>
+                <option value="dc"        {{ ($transfer->type ?? '') == 'dc'        ? 'selected' : '' }}>Delivery Challan (to Customer)</option>
+                <option value="return_dc" {{ ($transfer->type ?? '') == 'return_dc' ? 'selected' : '' }}>Return DC (from Customer)</option>
+              </select>
+            </div>
+            <div class="col-md-3">
               <label>Transfer Date</label>
               <input type="date" name="date" class="form-control" value="{{ date('Y-m-d', strtotime($transfer->date)) }}" required />
             </div>
@@ -33,7 +41,9 @@
               <select name="from_location_id" class="form-control select2-js" required>
                 <option value="">Select From Location</option>
                 @foreach($locations as $loc)
-                  <option value="{{ $loc->id }}" {{ $transfer->from_location_id == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  <option value="{{ $loc->id }}" data-customer="{{ $loc->chart_of_account_id ? 1 : 0 }}" {{ $transfer->from_location_id == $loc->id ? 'selected' : '' }}>
+                    {{ $loc->name }}@if($loc->chart_of_account_id) (Customer)@endif
+                  </option>
                 @endforeach
               </select>
             </div>
@@ -42,11 +52,13 @@
               <select name="to_location_id" class="form-control select2-js" required>
                 <option value="">Select To Location</option>
                 @foreach($locations as $loc)
-                  <option value="{{ $loc->id }}" {{ $transfer->to_location_id == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  <option value="{{ $loc->id }}" data-customer="{{ $loc->chart_of_account_id ? 1 : 0 }}" {{ $transfer->to_location_id == $loc->id ? 'selected' : '' }}>
+                    {{ $loc->name }}@if($loc->chart_of_account_id) (Customer)@endif
+                  </option>
                 @endforeach
               </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 mt-2">
               <label>Remarks</label>
               <input type="text" name="remarks" class="form-control" value="{{ $transfer->remarks }}">
             </div>
