@@ -76,6 +76,15 @@ class LocationController extends Controller
         }
     }
 
+    public function setDefault($id)
+    {
+        $location = Location::findOrFail($id);
+        if ($location->makeDefault()) {
+            return back()->with('success', "'{$location->name}' is now the default warehouse.");
+        }
+        return back()->with('error', 'Customer locations cannot be set as default.');
+    }
+
     // Delete a location
     public function destroy($id)
     {

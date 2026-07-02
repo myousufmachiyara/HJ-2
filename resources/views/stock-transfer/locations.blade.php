@@ -26,6 +26,13 @@
       </header>
 
       <div class="card-body">
+        <div class="alert alert-info py-2 mb-3">
+          <i class="fas fa-info-circle me-1"></i>
+          The <strong>Default</strong> warehouse holds all stock that hasn't been transferred out
+          (opening stock, purchases, production receipts). Exactly one warehouse can be default.
+          Customer stock locations are managed automatically from the customer account and are not shown here.
+        </div>
+
         <div class="modal-wrapper table-scroll">
           <table class="table table-bordered table-striped mb-0" id="datatable-locations">
             <thead>
@@ -33,6 +40,7 @@
                 <th>#</th>
                 <th>Name</th>
                 <th>Code</th>
+                <th>Default</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -42,18 +50,33 @@
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $location->name }}</td>
                 <td>{{ $location->code }}</td>
-                
+                <td>
+                  @if($location->is_default)
+                    <span class="badge bg-success"><i class="fas fa-star me-1"></i>Default</span>
+                  @else
+                    <form action="{{ route('locations.set-default', $location->id) }}" method="POST" class="d-inline">
+                      @csrf
+                      <button type="submit" class="btn btn-outline-secondary btn-sm">Set Default</button>
+                    </form>
+                  @endif
+                </td>
                 <td>
                   <a class="text-primary modal-with-form" href="#editLocationModal{{ $location->id }}">
                     <i class="fa fa-edit"></i>
                   </a>
-                  <form action="{{ route('locations.destroy', $location->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?')">
-                    @csrf
-                    @method('DELETE')
-                    <button type="submit" class="btn btn-link p-0 m-0 text-danger">
+                  @if($location->is_default)
+                    <span class="text-muted ms-1" title="The default warehouse cannot be deleted">
                       <i class="fas fa-trash-alt"></i>
-                    </button>
-                  </form>
+                    </span>
+                  @else
+                    <form action="{{ route('locations.destroy', $location->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?')">
+                      @csrf
+                      @method('DELETE')
+                      <button type="submit" class="btn btn-link p-0 m-0 text-danger">
+                        <i class="fas fa-trash-alt"></i>
+                      </button>
+                    </form>
+                  @endif
                 </td>
               </tr>
 

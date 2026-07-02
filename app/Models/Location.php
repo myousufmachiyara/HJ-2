@@ -10,7 +10,11 @@ class Location extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['name', 'code', 'chart_of_account_id'];
+    protected $fillable = ['name', 'code', 'is_default', 'chart_of_account_id'];
+
+    protected $casts = [
+        'is_default' => 'boolean',
+    ];
 
     public function stockTransfersFrom()
     {
@@ -34,16 +38,46 @@ class Location extends Model
         return !is_null($this->chart_of_account_id);
     }
 
-    // Scope: only physical warehouse locations (the ones users manage by hand).
+    // ── Scopes ────────────────────────────────────────────────────────
     public function scopeWarehouses($query)
     {
         return $query->whereNull('chart_of_account_id');
     }
 
-    // Scope: only customer stock-holder locations.
     public function scopeCustomers($query)
     {
         return $query->whereNotNull('chart_of_account_id');
+    }
+
+    /**
+     * The default warehouse — where all untransferred stock (opening, purchases,
+     * production receipts) is considered to live. Falls back to the first
+     * warehouse if no explicit default is set, so reports never break.
+     */
+    public static function default(): ?self
+    {
+        return static::warehouses()->where('is_default', true)->first()
+            ?? static::warehouses()->orderBy('id')->first();
+    }
+
+    public static function defaultId(): ?int
+    {
+        return static::default()?->id;
+    }
+
+    /**
+     * Make this location the one-and-only default warehouse.
+     * Clears the flag on every other location first. Customers can't be default.
+     */
+    public function makeDefault(): bool
+    {
+        if ($this->isCustomer()) {
+            return false; // a customer location can never be the default warehouse
+        }
+
+        static::query()->where('is_default', true)->update(['is_default' => false]);
+        $this->is_default = true;
+        return $this->save();
     }
 
     /**
@@ -59,6 +93,7 @@ class Location extends Model
         $location = static::firstOrNew(['chart_of_account_id' => $account->id]);
         $location->name = 'Customer: ' . $account->name;
         $location->code = 'CUST-' . $account->account_code;
+        // is_default stays false for customers (default DB value / cast)
         $location->save();
 
         return $location;

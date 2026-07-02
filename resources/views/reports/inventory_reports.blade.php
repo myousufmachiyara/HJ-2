@@ -18,6 +18,12 @@
       </a>
     </li>
     <li class="nav-item">
+      <a class="nav-link {{ $tab=='LOC'?'active':'' }}"
+         href="{{ route('reports.inventory') }}?tab=LOC">
+        <i class="fas fa-map-marker-alt me-1"></i> Location / Customer Stock
+      </a>
+    </li>
+    <li class="nav-item">
       <a class="nav-link {{ $tab=='WST'?'active':'' }}"
          href="{{ route('reports.inventory') }}?tab=WST&from_date={{ $from }}&to_date={{ $to }}">
         <i class="fas fa-trash-alt me-1"></i> Wastage Stock
@@ -266,6 +272,7 @@
         − Sold − Purchase Returns − Raw Issued − FG Returned.
         <strong class="text-danger">Wastage write-offs are excluded</strong> —
         see the <a href="{{ route('reports.inventory') }}?tab=WST">Wastage Stock</a> tab.
+        This is the <strong>company-wide total</strong> across all locations.
       </div>
 
       @php
@@ -275,6 +282,13 @@
 
       <div class="row mb-3">
         <div class="col text-end">
+          @if(($atCustomersTotal ?? 0) > 0)
+            <span class="me-3">
+              Of which at customers:
+              <strong class="text-warning">{{ number_format($atCustomersTotal, 2) }}</strong>
+              <a href="{{ route('reports.inventory') }}?tab=LOC" class="small ms-1">(view breakdown →)</a>
+            </span>
+          @endif
           <span class="me-3">Total Qty: <strong>{{ number_format($grandQty, 2) }}</strong></span>
           <span>Total Value: <strong class="text-danger fs-5">PKR {{ number_format($grandTotal, 0) }}</strong></span>
         </div>
@@ -322,6 +336,107 @@
           @endif
         </table>
       </div>
+    @endif
+
+    {{-- ── NEW: LOCATION / CUSTOMER STOCK ──────────────────────── --}}
+    @if($tab === 'LOC')
+      <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
+        <input type="hidden" name="tab" value="LOC">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label>Location / Customer</label>
+            <select name="stock_location_id" class="form-control select2-js" onchange="this.form.submit()">
+              @foreach($locations->whereNull('chart_of_account_id') as $loc)
+                <option value="{{ $loc->id }}" {{ $selectedLocationId == $loc->id ? 'selected' : '' }}>
+                  🏭 {{ $loc->name }}{{ $loc->is_default ? ' (Default Warehouse)' : '' }}
+                </option>
+              @endforeach
+              @php $customerLocs = $locations->whereNotNull('chart_of_account_id'); @endphp
+              @if($customerLocs->count())
+                <optgroup label="Customers">
+                  @foreach($customerLocs as $loc)
+                    <option value="{{ $loc->id }}" {{ $selectedLocationId == $loc->id ? 'selected' : '' }}>
+                      👤 {{ $loc->name }}
+                    </option>
+                  @endforeach
+                </optgroup>
+              @endif
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100">View</button>
+          </div>
+        </div>
+      </form>
+
+      @php
+        $selLoc     = $locations->firstWhere('id', $selectedLocationId);
+        $isCustomer = $selLoc && $selLoc->chart_of_account_id;
+        $locTotalQty = $locationStock->sum('quantity');
+      @endphp
+
+      <div class="alert {{ $isCustomer ? 'alert-warning' : 'alert-info' }} mb-3">
+        <i class="fas {{ $isCustomer ? 'fa-user' : 'fa-warehouse' }} me-1"></i>
+        @if($isCustomer)
+          Stock currently <strong>held by {{ $selLoc->name }}</strong> —
+          delivered via challan, reduced by their sale invoices, increased by their sale returns.
+        @elseif($selLoc && $selLoc->is_default)
+          Stock in the <strong>default warehouse</strong> ({{ $selLoc->name }}) —
+          all stock not transferred out to another location or customer.
+        @elseif($selLoc)
+          Stock in <strong>{{ $selLoc->name }}</strong> — net of transfers in and out.
+        @else
+          Select a location to view its stock.
+        @endif
+      </div>
+
+      @if($selLoc)
+        <div class="row mb-3">
+          <div class="col text-end">
+            <span>Total Qty at this location: <strong class="fs-5 {{ $locTotalQty < 0 ? 'text-danger' : 'text-primary' }}">
+              {{ number_format($locTotalQty, 2) }}
+            </strong></span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-bordered table-striped table-sm" id="locTable">
+            <thead class="table-light">
+              <tr>
+                <th>Product</th>
+                <th>Variation</th>
+                <th class="text-end">Quantity Held</th>
+              </tr>
+            </thead>
+            <tbody>
+              @forelse($locationStock as $row)
+                <tr class="{{ $row['quantity'] < 0 ? 'table-danger' : '' }}">
+                  <td>{{ $row['product'] }}</td>
+                  <td>{{ $row['variation'] ?? '—' }}</td>
+                  <td class="text-end fw-bold {{ $row['quantity'] < 0 ? 'text-danger' : '' }}">
+                    {{ number_format($row['quantity'], 2) }}
+                  </td>
+                </tr>
+              @empty
+                <tr><td colspan="3" class="text-center text-muted py-3">
+                  No stock at this location.
+                  @if($isCustomer) This customer isn't currently holding any goods. @endif
+                </td></tr>
+              @endforelse
+            </tbody>
+            @if($locationStock->count())
+              <tfoot class="table-light fw-bold">
+                <tr>
+                  <td colspan="2" class="text-end">Total</td>
+                  <td class="text-end {{ $locTotalQty < 0 ? 'text-danger' : 'text-primary' }}">
+                    {{ number_format($locTotalQty, 2) }}
+                  </td>
+                </tr>
+              </tfoot>
+            @endif
+          </table>
+        </div>
+      @endif
     @endif
 
     {{-- ── 3. WASTAGE STOCK ────────────────────────────────────── --}}
@@ -525,6 +640,7 @@
             <tr>
               <th>Date</th>
               <th>Reference</th>
+              <th>Type</th>
               <th>Product</th>
               <th>Variation</th>
               <th>From</th>
@@ -534,6 +650,13 @@
           </thead>
           <tbody>
             @forelse($stockTransfers as $st)
+              @php
+                $typeBadge = match($st['type'] ?? 'transfer') {
+                  'dc'        => ['bg-primary', 'Delivery Challan'],
+                  'return_dc' => ['bg-warning text-dark', 'Return DC'],
+                  default     => ['bg-secondary', 'Transfer'],
+                };
+              @endphp
               <tr>
                 <td>{{ \Carbon\Carbon::parse($st['date'])->format('d-M-Y') }}</td>
                 <td>
@@ -541,6 +664,7 @@
                     ST#{{ $st['reference'] }}
                   </a>
                 </td>
+                <td><span class="badge {{ $typeBadge[0] }}">{{ $typeBadge[1] }}</span></td>
                 <td>{{ $st['product'] }}</td>
                 <td>{{ $st['variation'] ?? '—' }}</td>
                 <td>{{ $st['from'] }}</td>
@@ -548,13 +672,13 @@
                 <td class="text-end">{{ number_format($st['quantity'], 2) }}</td>
               </tr>
             @empty
-              <tr><td colspan="7" class="text-center text-muted">No stock transfers found.</td></tr>
+              <tr><td colspan="8" class="text-center text-muted">No stock transfers found.</td></tr>
             @endforelse
           </tbody>
           @if(count($stockTransfers))
             <tfoot class="table-light fw-bold">
               <tr>
-                <td colspan="6" class="text-end">Total Transferred</td>
+                <td colspan="7" class="text-end">Total Transferred</td>
                 <td class="text-end">{{ number_format(collect($stockTransfers)->sum('quantity'), 2) }}</td>
               </tr>
             </tfoot>
@@ -685,7 +809,7 @@
 <script>
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%' });
-    $('#ilTable, #srTable, #strTable, #nmiTable, #rolTable').DataTable({
+    $('#ilTable, #srTable, #locTable, #strTable, #nmiTable, #rolTable').DataTable({
       pageLength: 100,
       order: [],
     });

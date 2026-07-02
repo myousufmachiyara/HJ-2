@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('name')->unique();
             $table->string('code')->nullable();
+            $table->boolean('is_default')->default(false);
             $table->unsignedBigInteger('chart_of_account_id')->nullable();
             $table->timestamps();
             $table->softDeletes(); 

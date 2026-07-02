@@ -41,12 +41,14 @@ class InventoryReportController extends Controller
 
         $allProducts = Product::with('variations')->get();
 
-        $itemLedger     = collect();
-        $stockInHand    = collect();
-        $wastageStock   = collect();
-        $stockTransfers = collect();
-        $nonMovingItems = collect();
-        $reorderLevel   = collect();
+        $itemLedger      = collect();
+        $stockInHand     = collect();
+        $wastageStock    = collect();
+        $stockTransfers  = collect();
+        $nonMovingItems  = collect();
+        $reorderLevel    = collect();
+        $locationStock   = collect(); // ← NEW: Location / Customer stock
+        $atCustomersTotal = 0.0;      // ← NEW: SR summary "of which at customers"
 
         // ── Helper: purchase cost by costing method ───────────────────
         $getPurchaseCost = function (int $itemId, string $method, ?int $varId = null) {
@@ -74,9 +76,7 @@ class InventoryReportController extends Controller
             };
         };
 
-        // ── Helper: current real stock qty (optionally as-of a date, exclusive) ──
-        // Only 'extra' type wastage returns come back to real stock.
-        // 'wastage' type is a write-off — not counted in inventory.
+        // ── Helper: current real stock qty (company-wide, optionally as-of a date) ──
         $getStockQty = function (Product $product, ?object $var, ?string $asOfDate = null) {
             $vid = $var->id ?? null;
 
@@ -119,7 +119,6 @@ class InventoryReportController extends Controller
                                 ->when($asOfDate, fn($q) => $q->whereHas('productionReturn', fn($q2) => $q2->where('return_date', '<', $asOfDate)))
                                 ->sum('quantity');
 
-            // ONLY extra type → back to real stock (wastage type = write-off, excluded)
             $wastageIn      = (float) ProductionWastageReceivingDetail::where('product_id', $product->id)
                                 ->where('return_type', 'extra')
                                 ->when($vid, fn($q) => $q->where('variation_id', $vid))
@@ -135,6 +134,74 @@ class InventoryReportController extends Controller
                 - $sold
                 - $rawIssued
                 - $fgReturned;
+        };
+
+        // ── Helper: transfers in/out of a given location (as-of aware) ──
+        $transferQty = function (int $locId, string $direction, int $prodId, ?int $vid, ?string $asOf = null) {
+            $col = $direction === 'in' ? 'to_location_id' : 'from_location_id';
+            return (float) StockTransferDetail::where('product_id', $prodId)
+                ->when($vid, fn($q) => $q->where('variation_id', $vid))
+                ->whereHas('transfer', function ($t) use ($col, $locId, $asOf) {
+                    $t->whereNull('deleted_at')->where($col, $locId)
+                      ->when($asOf, fn($q) => $q->where('date', '<', $asOf));
+                })->sum('quantity');
+        };
+
+        // ── Helper: a customer's sales / sale-returns for one product ──
+        $customerSold = function (int $accountId, int $prodId, ?int $vid, ?string $asOf = null) {
+            return (float) SaleInvoiceItem::where('product_id', $prodId)
+                ->when($vid, fn($q) => $q->where('variation_id', $vid))
+                ->whereHas('invoice', function ($i) use ($accountId, $asOf) {
+                    $i->where('account_id', $accountId)
+                      ->when($asOf, fn($q) => $q->where('date', '<', $asOf));
+                })->sum('quantity');
+        };
+        $customerReturned = function (int $accountId, int $prodId, ?int $vid, ?string $asOf = null) {
+            // Assumes sale_returns has account_id + return_date. Change here if different.
+            return (float) SaleReturnItem::where('product_id', $prodId)
+                ->when($vid, fn($q) => $q->where('variation_id', $vid))
+                ->whereHas('saleReturn', function ($r) use ($accountId, $asOf) {
+                    $r->where('account_id', $accountId)
+                      ->when($asOf, fn($q) => $q->where('return_date', '<', $asOf));
+                })->sum('qty');
+        };
+
+        // ── Helper: on-hand of a product/variation AT a specific location ──
+        // Keeps the invariant: sum over all locations == company getStockQty().
+        $balanceAtLocation = function (Location $loc, Product $product, ?object $var, ?string $asOf = null)
+            use ($getStockQty, $transferQty, $customerSold, $customerReturned) {
+
+            $vid   = $var->id ?? null;
+            $prodId = $product->id;
+
+            $in  = $transferQty($loc->id, 'in',  $prodId, $vid, $asOf);
+            $out = $transferQty($loc->id, 'out', $prodId, $vid, $asOf);
+
+            if ($loc->chart_of_account_id) {
+                // Customer holder: DC in − return DC out − their sales + their returns
+                return $in - $out
+                    - $customerSold($loc->chart_of_account_id, $prodId, $vid, $asOf)
+                    + $customerReturned($loc->chart_of_account_id, $prodId, $vid, $asOf);
+            }
+
+            if ($loc->is_default) {
+                // Default warehouse holds the untransferred remainder of company stock.
+                // company total already has sales subtracted; here we remove only what
+                // physically left this warehouse via transfers (in − out nets internal moves).
+                $companyTotal = $getStockQty($product, $var, $asOf);
+
+                // Everything that left ALL warehouses to customers/other locations is captured
+                // by transfers; for the default we use its own in/out plus the fact that all
+                // opening/purchase/production landed here. Net: company − (net transferred out
+                // of the whole warehouse system to customers) + (this default's internal net).
+                // Simpler & exact: default = company − (sum of every OTHER location's balance).
+                // Computed by caller loop instead (see LOC tab). Here we return the raw
+                // warehouse net for non-default warehouses; default is handled specially below.
+                return $companyTotal; // placeholder; overridden in LOC aggregation
+            }
+
+            // Non-default warehouse: pure transfer net
+            return $in - $out;
         };
 
         // ────────────────────────────────────────────────────────────────
@@ -159,7 +226,6 @@ class InventoryReportController extends Controller
                     $vid    = $var->id ?? null;
                     $ledger = collect();
 
-                    // ── Opening Balance row: net stock from all movements strictly before $from ──
                     $openingBalanceQty = $getStockQty($product, $var, $from);
 
                     $openingRow = null;
@@ -364,7 +430,6 @@ class InventoryReportController extends Controller
                             })
                     );
 
-                    // Sort period movements by date, then prepend opening balance (always first)
                     $periodMovements = $ledger->sortBy('date')->values();
 
                     if ($openingRow) {
@@ -376,7 +441,7 @@ class InventoryReportController extends Controller
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 2. STOCK IN HAND
+        // 2. STOCK IN HAND  (company-wide total — unchanged math)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'SR') {
             $costingMethod     = $request->costing_method ?? 'avg';
@@ -396,18 +461,6 @@ class InventoryReportController extends Controller
 
             $productIds = $productsToProcess->pluck('id')->toArray();
 
-            // ── FIX: Build a wider product-ID set for purchase-price lookups only. ──
-            // $productIds (above) correctly stays scoped to whatever's being displayed
-            // in the table, and continues to drive purchasedSums/soldSums/etc below.
-            // But manufactured FG items need the purchase price of the RAW MATERIALS
-            // consumed in their production batches (see $getRawRate usage further down).
-            // When filtering to a single FG product/variation, $productIds only contains
-            // that FG's own ID — never the raw material's ID — so $purchasePriceAgg was
-            // coming back empty for the raw material and raw_cost silently fell back to 0,
-            // even though the same FG showed the correct raw_cost under "All Products"
-            // (where every raw material's ID happened to already be present in $productIds).
-            // We expand only the purchase-price lookup set below to include those raw
-            // material IDs; nothing else in this block changes.
             $fgProductIdsForRawLookup = $productsToProcess
                 ->filter(fn($p) => $p->item_type !== 'raw')
                 ->pluck('id');
@@ -423,7 +476,6 @@ class InventoryReportController extends Controller
 
             $purchaseLookupProductIds = array_values(array_unique(array_merge($productIds, $rawMaterialIdsNeeded)));
 
-            // ── Bulk preload all stock-movement sums, grouped by product_id + variation_id ──
             $purchasedSums = PurchaseInvoiceItem::whereIn('item_id', $productIds)
                 ->selectRaw('item_id as product_id, variation_id, SUM(quantity) as total')
                 ->groupBy('item_id', 'variation_id')->get()->groupBy('product_id');
@@ -457,9 +509,6 @@ class InventoryReportController extends Controller
                 ->selectRaw('product_id, variation_id, SUM(quantity) as total')
                 ->groupBy('product_id', 'variation_id')->get()->groupBy('product_id');
 
-            // ── Bulk preload purchase price aggregates (for raw cost), per product+variation AND per product (null variation) ──
-            // FIX: uses $purchaseLookupProductIds (productIds + raw material IDs) instead of $productIds,
-            // so raw materials consumed by a filtered FG product are included.
             $purchasePriceAgg = PurchaseInvoiceItem::whereIn('item_id', $purchaseLookupProductIds)
                 ->selectRaw('item_id as product_id, variation_id,
                     SUM(quantity * price) as sum_value,
@@ -470,8 +519,6 @@ class InventoryReportController extends Controller
                 ->get()
                 ->groupBy('product_id');
 
-            // Latest price per product+variation (and per product null-variation)
-            // FIX: uses $purchaseLookupProductIds for the same reason as above.
             $latestPriceRows = PurchaseInvoiceItem::whereIn('item_id', $purchaseLookupProductIds)
                 ->orderBy('id', 'desc')
                 ->get(['item_id', 'variation_id', 'price', 'id'])
@@ -493,9 +540,8 @@ class InventoryReportController extends Controller
                 $hasVarSpecific = $vid !== null && $row !== null;
 
                 if ($vid !== null && !$hasVarSpecific) {
-                    // fall back to null-variation row for this product
                     $row = $rows->firstWhere('variation_id', null);
-                    if (!$row) return null; // no purchase data at all
+                    if (!$row) return null;
                 }
 
                 if (!$row) return 0;
@@ -508,9 +554,8 @@ class InventoryReportController extends Controller
                 };
             };
 
-            $directlyPurchasedSet = $purchasePriceAgg->keys()->flip(); // product_id => true if any purchase exists
+            $directlyPurchasedSet = $purchasePriceAgg->keys()->flip();
 
-            // ── For manufactured FG: preload production receivings with production+details in one go ──
             $fgProductIds = $productsToProcess->filter(fn($p) => $p->item_type !== 'raw')->pluck('id')->toArray();
 
             $allReceivingsForFg = ProductionReceivingDetail::whereIn('product_id', $fgProductIds)
@@ -522,7 +567,6 @@ class InventoryReportController extends Controller
                 ->get()
                 ->groupBy(['product_id', 'variation_id']);
 
-            // Cache raw rate per raw-product (avoids re-querying same raw material repeatedly)
             $rawRateCache = [];
             $getRawRate = function ($rawProductId, $method) use (&$rawRateCache, $purchaseAggFor) {
                 $key = $rawProductId . '-' . $method;
@@ -533,48 +577,33 @@ class InventoryReportController extends Controller
                 return $rawRateCache[$key];
             };
 
-            // ── Cache: fraction of issued raw that was actually consumed, per production ──
-            // consumedFraction = (rawIssued - extraReturned - wastageWriteoff) / rawIssued
-            // This excludes raw that was returned to stock ('extra') or written off ('wastage')
-            // from loading onto the FG's per-piece cost.
             $consumedFractionCache = [];
             $rawConsumedFractionFor = function ($production) use (&$consumedFractionCache) {
                 if (!$production) return 1.0;
-
                 if (isset($consumedFractionCache[$production->id])) {
                     return $consumedFractionCache[$production->id];
                 }
-
                 $totalRawGiven = (float) $production->details->sum('qty');
-
                 if ($totalRawGiven <= 0) {
                     return $consumedFractionCache[$production->id] = 1.0;
                 }
-
-                $wastageDetails = $production->wastageReceivings
-                    ->flatMap->details;
-
-                // null/legacy return_type defaults to 'extra' (back to stock) — matches
-                // convention used elsewhere (Item Ledger, Wastage Stock report, etc.)
+                $wastageDetails = $production->wastageReceivings->flatMap->details;
                 $totalExtraReturned   = (float) $wastageDetails
-                    ->filter(fn($wd) => ($wd->return_type ?? 'extra') === 'extra')
-                    ->sum('quantity');
-
+                    ->filter(fn($wd) => ($wd->return_type ?? 'extra') === 'extra')->sum('quantity');
                 $totalWastageWriteoff = (float) $wastageDetails
-                    ->filter(fn($wd) => ($wd->return_type ?? 'extra') !== 'extra')
-                    ->sum('quantity');
-
+                    ->filter(fn($wd) => ($wd->return_type ?? 'extra') !== 'extra')->sum('quantity');
                 $rawConsumedTotal = max(0, $totalRawGiven - $totalExtraReturned - $totalWastageWriteoff);
-
                 return $consumedFractionCache[$production->id] = $rawConsumedTotal / $totalRawGiven;
             };
 
-            // ── Helper: sum from preloaded grouped collection ──
             $getSum = function ($groupedByProduct, $productId, $vid) {
                 $rows = $groupedByProduct->get($productId, collect());
                 $row  = $rows->first(fn($r) => $r->variation_id == $vid);
                 return $row ? (float) $row->total : 0;
             };
+
+            // customers set (for the "at customers" summary line)
+            $customerAccountIds = Location::customers()->pluck('chart_of_account_id')->filter()->values();
 
             foreach ($productsToProcess as $product) {
                 $variations = $product->variations->isNotEmpty()
@@ -584,7 +613,6 @@ class InventoryReportController extends Controller
                 foreach ($variations as $var) {
                     $vid = $var->id ?? null;
 
-                    // ── Stock qty (from preloaded sums) ──
                     $openingStock   = $vid
                         ? (float) ($var->stock_quantity ?? 0)
                         : (float) ($product->opening_stock ?? 0);
@@ -608,6 +636,26 @@ class InventoryReportController extends Controller
                         - $rawIssued
                         - $fgReturned;
 
+                    // "of which at customers": net DC'd out minus sold-at-customer (already
+                    // in $sold, so we add back only the still-held portion) — computed as
+                    // transfers to customers − return DCs − customer sales + customer returns.
+                    if ($customerAccountIds->isNotEmpty()) {
+                        foreach (Location::customers()->get() as $custLoc) {
+                            $cin  = (float) StockTransferDetail::where('product_id', $product->id)
+                                ->when($vid, fn($q) => $q->where('variation_id', $vid))
+                                ->whereHas('transfer', fn($t) => $t->whereNull('deleted_at')->where('to_location_id', $custLoc->id))
+                                ->sum('quantity');
+                            $cout = (float) StockTransferDetail::where('product_id', $product->id)
+                                ->when($vid, fn($q) => $q->where('variation_id', $vid))
+                                ->whereHas('transfer', fn($t) => $t->whereNull('deleted_at')->where('from_location_id', $custLoc->id))
+                                ->sum('quantity');
+                            $csold = $customerSold($custLoc->chart_of_account_id, $product->id, $vid);
+                            $cret  = $customerReturned($custLoc->chart_of_account_id, $product->id, $vid);
+                            $held  = $cin - $cout - $csold + $cret;
+                            if ($held > 0) $atCustomersTotal += $held;
+                        }
+                    }
+
                     $rawCostPerPiece = 0;
                     $mfgCostPerPiece = 0;
 
@@ -619,7 +667,6 @@ class InventoryReportController extends Controller
                         $agg = $purchaseAggFor($product->id, $vid, $costingMethod);
 
                         if ($agg === null) {
-                            // No purchase data at all for this var or fallback — zero row
                             $stockInHand->push([
                                 'product'   => $product->name,
                                 'variation' => $var->sku ?? null,
@@ -629,7 +676,6 @@ class InventoryReportController extends Controller
                             ]);
                             continue;
                         }
-
                         $rawCostPerPiece = $agg;
 
                     } elseif ($isFg && !$directlyPurchased) {
@@ -642,7 +688,6 @@ class InventoryReportController extends Controller
 
                         foreach ($prodReceivings as $recDetail) {
                             $production = $recDetail->receiving->production ?? null;
-
                             $batchFgQty = (float) $recDetail->received_qty;
 
                             if ($production) {
@@ -651,10 +696,6 @@ class InventoryReportController extends Controller
                                     $rawRate             = $getRawRate($rawDetail->product_id, $costingMethod);
                                     $batchRawCostIssued += (float) $rawDetail->qty * $rawRate;
                                 }
-
-                                // Scale down to only the raw actually consumed — exclude
-                                // extra raw returned to stock and wastage written off,
-                                // so their cost doesn't inflate this FG's per-piece cost.
                                 $consumedFraction = $rawConsumedFractionFor($production);
                                 $batchRawCost     = $batchRawCostIssued * $consumedFraction;
 
@@ -697,17 +738,14 @@ class InventoryReportController extends Controller
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 3. WASTAGE STOCK (Write-off register)
+        // 3. WASTAGE STOCK (unchanged)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'WST') {
             $costingMethod = $request->costing_method ?? 'avg';
 
             $wastageRows = ProductionWastageReceivingDetail::with([
-                    'product.measurementUnit',
-                    'variation',
-                    'unit',
-                    'wastageReceiving.vendor',
-                    'wastageReceiving.production',
+                    'product.measurementUnit', 'variation', 'unit',
+                    'wastageReceiving.vendor', 'wastageReceiving.production',
                 ])
                 ->where('return_type', 'wastage')
                 ->whereHas('wastageReceiving', fn($q) => $q->whereBetween('rec_date', [$from, $to]))
@@ -719,18 +757,11 @@ class InventoryReportController extends Controller
                 $key = $row->product_id . '-' . ($row->variation_id ?? '0');
 
                 if (!$grouped->has($key)) {
-                    $costPerUnit = $getPurchaseCost(
-                        $row->product_id,
-                        $costingMethod,
-                        $row->variation_id
-                    );
-
+                    $costPerUnit = $getPurchaseCost($row->product_id, $costingMethod, $row->variation_id);
                     $grouped->put($key, [
                         'product'       => $row->product->name ?? '-',
                         'variation'     => $row->variation->sku ?? null,
-                        'unit'          => $row->unit->shortcode
-                            ?? $row->product->measurementUnit->shortcode
-                            ?? '-',
+                        'unit'          => $row->unit->shortcode ?? $row->product->measurementUnit->shortcode ?? '-',
                         'total_qty'     => 0,
                         'cost_per_unit' => round($costPerUnit, 2),
                         'total_cost'    => 0,
@@ -754,14 +785,13 @@ class InventoryReportController extends Controller
             $wastageStock = $grouped->map(function ($g) {
                 $g['total_qty']  = round($g['total_qty'], 3);
                 $g['total_cost'] = round($g['total_qty'] * $g['cost_per_unit'], 2);
-                // Sort entries by date ascending
                 usort($g['entries'], fn($a, $b) => strcmp($a['date'], $b['date']));
                 return (object) $g;
             })->sortByDesc('total_qty')->values();
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 4. STOCK TRANSFERS
+        // 4. STOCK TRANSFERS (now shows type + is DC-aware)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'STR') {
             $stockTransfers = StockTransferDetail::with([
@@ -775,6 +805,7 @@ class InventoryReportController extends Controller
             })->get()->map(fn($row) => [
                 'date'      => $row->transfer->date ?? null,
                 'reference' => $row->transfer->id   ?? null,
+                'type'      => $row->transfer->type ?? 'transfer',
                 'product'   => $row->product->name  ?? null,
                 'variation' => $row->variation->sku ?? null,
                 'from'      => $row->transfer->fromLocation->name ?? '',
@@ -784,7 +815,7 @@ class InventoryReportController extends Controller
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 5. NON-MOVING ITEMS
+        // 5. NON-MOVING ITEMS (unchanged)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'NMI') {
             $months    = (int) ($request->months ?? 3);
@@ -804,38 +835,32 @@ class InventoryReportController extends Controller
 
                     $lastPurchase = PurchaseInvoiceItem::where('item_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('invoice')->get()
-                        ->max(fn($r) => $r->invoice->invoice_date ?? null);
+                        ->with('invoice')->get()->max(fn($r) => $r->invoice->invoice_date ?? null);
                     if ($lastPurchase) $dates->push($lastPurchase);
 
                     $lastSale = SaleInvoiceItem::where('product_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('invoice')->get()
-                        ->max(fn($r) => $r->invoice->date ?? null);
+                        ->with('invoice')->get()->max(fn($r) => $r->invoice->date ?? null);
                     if ($lastSale) $dates->push($lastSale);
 
                     $lastProdOrder = ProductionDetail::where('product_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('production')->get()
-                        ->max(fn($r) => $r->production->order_date ?? null);
+                        ->with('production')->get()->max(fn($r) => $r->production->order_date ?? null);
                     if ($lastProdOrder) $dates->push($lastProdOrder);
 
                     $lastProdReceiving = ProductionReceivingDetail::where('product_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('receiving')->get()
-                        ->max(fn($r) => $r->receiving->rec_date ?? null);
+                        ->with('receiving')->get()->max(fn($r) => $r->receiving->rec_date ?? null);
                     if ($lastProdReceiving) $dates->push($lastProdReceiving);
 
                     $lastProdReturn = ProductionReturnItem::where('product_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('productionReturn')->get()
-                        ->max(fn($r) => $r->productionReturn->return_date ?? null);
+                        ->with('productionReturn')->get()->max(fn($r) => $r->productionReturn->return_date ?? null);
                     if ($lastProdReturn) $dates->push($lastProdReturn);
 
                     $lastWastage = ProductionWastageReceivingDetail::where('product_id', $product->id)
                         ->when($vid, fn($q) => $q->where('variation_id', $vid))
-                        ->with('wastageReceiving')->get()
-                        ->max(fn($r) => $r->wastageReceiving->rec_date ?? null);
+                        ->with('wastageReceiving')->get()->max(fn($r) => $r->wastageReceiving->rec_date ?? null);
                     if ($lastWastage) $dates->push($lastWastage);
 
                     $lastDate = $dates->filter()->max();
@@ -846,9 +871,7 @@ class InventoryReportController extends Controller
                             'variation'     => $var->sku ?? null,
                             'stock_qty'     => round($stockQty, 2),
                             'last_date'     => $lastDate ?? 'Never',
-                            'days_inactive' => $lastDate
-                                ? Carbon::parse($lastDate)->diffInDays(now())
-                                : null,
+                            'days_inactive' => $lastDate ? Carbon::parse($lastDate)->diffInDays(now()) : null,
                         ]);
                     }
                 }
@@ -858,7 +881,7 @@ class InventoryReportController extends Controller
         }
 
         // ────────────────────────────────────────────────────────────────
-        // 6. REORDER LEVEL
+        // 6. REORDER LEVEL (unchanged)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'ROL') {
             foreach ($allProducts as $product) {
@@ -888,19 +911,93 @@ class InventoryReportController extends Controller
             $reorderLevel = $reorderLevel->sortByDesc('shortage')->values();
         }
 
+        // ────────────────────────────────────────────────────────────────
+        // 7. LOCATION / CUSTOMER STOCK  (NEW)
+        // ────────────────────────────────────────────────────────────────
+        if ($tab === 'LOC') {
+            $selectedLocationId = $request->stock_location_id ?: Location::defaultId();
+            $selectedLocation   = $selectedLocationId ? Location::find($selectedLocationId) : null;
+            $defaultId          = Location::defaultId();
+
+            if ($selectedLocation) {
+                $isDefault  = (bool) $selectedLocation->is_default;
+                $isCustomer = (bool) $selectedLocation->chart_of_account_id;
+
+                foreach ($allProducts as $product) {
+                    $variations = $product->variations->isNotEmpty()
+                        ? $product->variations
+                        : collect([(object)['id' => null, 'sku' => null, 'stock_quantity' => 0]]);
+
+                    foreach ($variations as $var) {
+                        $vid = $var->id ?? null;
+
+                        if ($isCustomer) {
+                            // DC in − return DC out − their sales + their returns
+                            $in    = $transferQty($selectedLocation->id, 'in',  $product->id, $vid);
+                            $out   = $transferQty($selectedLocation->id, 'out', $product->id, $vid);
+                            $csold = $customerSold($selectedLocation->chart_of_account_id, $product->id, $vid);
+                            $cret  = $customerReturned($selectedLocation->chart_of_account_id, $product->id, $vid);
+                            $qty   = $in - $out - $csold + $cret;
+
+                        } elseif ($isDefault) {
+                            // Default holds the remainder: company total − everything held
+                            // at every OTHER location (other warehouses + customers).
+                            $company = $getStockQty($product, $var);
+
+                            $heldElsewhere = 0.0;
+                            foreach ($locations as $loc) {
+                                if ($loc->id === $selectedLocation->id) continue;
+
+                                $lin  = $transferQty($loc->id, 'in',  $product->id, $vid);
+                                $lout = $transferQty($loc->id, 'out', $product->id, $vid);
+
+                                if ($loc->chart_of_account_id) {
+                                    $lsold = $customerSold($loc->chart_of_account_id, $product->id, $vid);
+                                    $lret  = $customerReturned($loc->chart_of_account_id, $product->id, $vid);
+                                    $heldElsewhere += ($lin - $lout - $lsold + $lret);
+                                } else {
+                                    $heldElsewhere += ($lin - $lout);
+                                }
+                            }
+                            $qty = $company - $heldElsewhere;
+
+                        } else {
+                            // Plain warehouse: transfers in − out
+                            $in  = $transferQty($selectedLocation->id, 'in',  $product->id, $vid);
+                            $out = $transferQty($selectedLocation->id, 'out', $product->id, $vid);
+                            $qty = $in - $out;
+                        }
+
+                        if (round($qty, 4) != 0.0) {
+                            $locationStock->push([
+                                'product'   => $product->name,
+                                'variation' => $var->sku ?? null,
+                                'quantity'  => round($qty, 4),
+                            ]);
+                        }
+                    }
+                }
+
+                $locationStock = $locationStock->sortBy('product')->values();
+            }
+        }
+
         return view('reports.inventory_reports', [
-            'products'       => $allProducts,
-            'tab'            => $tab,
-            'itemLedger'     => $itemLedger,
-            'stockInHand'    => $stockInHand,
-            'wastageStock'   => $wastageStock,
-            'stockTransfers' => $stockTransfers,
-            'nonMovingItems' => $nonMovingItems,
-            'reorderLevel'   => $reorderLevel,
-            'from'           => $from,
-            'to'             => $to,
-            'locationId'     => $locationId,
-            'locations'      => $locations,
+            'products'         => $allProducts,
+            'tab'              => $tab,
+            'itemLedger'       => $itemLedger,
+            'stockInHand'      => $stockInHand,
+            'wastageStock'     => $wastageStock,
+            'stockTransfers'   => $stockTransfers,
+            'nonMovingItems'   => $nonMovingItems,
+            'reorderLevel'     => $reorderLevel,
+            'locationStock'    => $locationStock,       // ← NEW
+            'atCustomersTotal' => round($atCustomersTotal, 2), // ← NEW
+            'from'             => $from,
+            'to'               => $to,
+            'locationId'       => $locationId,
+            'locations'        => $locations,
+            'selectedLocationId' => $request->stock_location_id ?? Location::defaultId(), // ← NEW
         ]);
     }
 }
