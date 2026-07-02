@@ -26,6 +26,17 @@
       </header>
 
       <div class="card-body">
+
+        <!-- Live import progress (hidden until an import is running) -->
+        <div id="importProgress" class="mb-3" style="display:none;">
+          <div class="progress" style="height:22px;">
+            <div id="importBar"
+                 class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                 role="progressbar" style="width:0%">0%</div>
+          </div>
+          <small id="importMsg" class="text-muted"></small>
+        </div>
+
         <div class="modal-wrapper table-scroll">
           <table class="table table-bordered table-striped mb-0" id="cust-datatable-default">
             <thead>
@@ -106,6 +117,7 @@
         </form>
       </section>
     </div>
+
   </div>
 </div>
 
@@ -114,7 +126,42 @@
     $('#cust-datatable-default').DataTable({
       "pageLength": 100
     });
+
+    // Auto-start progress tracking after a bulk import was queued.
+    @if(session('import_id'))
+      trackImport({{ session('import_id') }});
+    @endif
   });
 
+  function trackImport(id) {
+    const box = document.getElementById('importProgress');
+    const bar = document.getElementById('importBar');
+    const msg = document.getElementById('importMsg');
+    box.style.display = 'block';
+
+    const url = "{{ url('products/import-status') }}/" + id;
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch(url);
+        const d = await r.json();
+
+        bar.style.width = d.progress + '%';
+        bar.textContent = d.progress + '%';
+        msg.textContent = d.message || d.status;
+
+        if (d.status === 'completed' || d.status === 'failed') {
+          clearInterval(poll);
+          bar.classList.remove('progress-bar-animated');
+          if (d.status === 'failed') {
+            bar.classList.remove('bg-success');
+            bar.classList.add('bg-danger');
+          }
+          setTimeout(() => location.reload(), 1500);
+        }
+      } catch (e) {
+        // transient network/permission hiccup — keep polling
+      }
+    }, 2000);
+  }
 </script>
 @endsection

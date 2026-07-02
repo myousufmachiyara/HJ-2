@@ -12,8 +12,11 @@ use App\Models\MeasurementUnit;
 use App\Models\ProductVariation;
 use App\Models\AttributeValue;
 use App\Models\ProductVariationAttributeValue;
+use App\Models\ProductImport;                 // ← NEW
+use App\Jobs\PrepareProductImportJob;          // ← NEW
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Bus;            // ← NEW
 use Picqer\Barcode\BarcodeGeneratorPNG;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -553,7 +556,7 @@ class ProductController extends Controller
     }
 
     // ================================================================
-    //  BULK IMPORT
+    //  BULK IMPORT  (async — hands off to a queued job)
     // ================================================================
     public function bulkImport(Request $request)
     {
@@ -562,250 +565,57 @@ class ProductController extends Controller
             'delete_missing' => 'nullable|boolean',
         ]);
 
-        DB::beginTransaction();
-        try {
-            $rows = Excel::toArray([], $request->file('file'))[0] ?? [];
-            if (empty($rows)) {
-                throw new \Exception('Uploaded file is empty.');
+        // Persist the upload so the queue worker (a separate process) can read it.
+        $path = $request->file('file')->store('imports', 'local');
+
+        $import = ProductImport::create([
+            'original_name'  => $request->file('file')->getClientOriginalName(),
+            'file_path'      => $path,
+            'status'         => 'queued',
+            'delete_missing' => $request->boolean('delete_missing'),
+        ]);
+
+        PrepareProductImportJob::dispatch($import->id)->onQueue('imports');
+
+        return back()
+            ->with('success', "Import queued (#{$import->id}). Processing in the background — progress will update below.")
+            ->with('import_id', $import->id);
+    }
+
+    // ================================================================
+    //  IMPORT STATUS  (polled by the progress bar on the index page)
+    // ================================================================
+    public function importStatus($id)
+    {
+        $import = ProductImport::findOrFail($id);
+
+        $progress = 0;
+        if ($import->batch_id) {
+            $batch = Bus::findBatch($import->batch_id);
+            if ($batch) {
+                $progress = $batch->progress(); // 0–100
             }
-
-            $rawHeader = array_shift($rows);
-            $header    = array_map(fn($h) => strtolower(trim((string)$h)), $rawHeader);
-            $colCount  = count($header);
-
-            if (!empty($rows) && str_starts_with(trim((string)($rows[0][0] ?? '')), '←')) {
-                array_shift($rows);
-            }
-
-            $dbAttributes   = Attribute::orderBy('id')->get()->keyBy(fn($a) => strtolower($a->name));
-            $categoryMap    = ProductCategory::all()->keyBy(fn($c) => strtolower(trim($c->name)));
-            $subcategoryMap = ProductSubcategory::all()->keyBy(fn($s) => strtolower(trim($s->name)));
-            $defaultUnit    = MeasurementUnit::first()?->id ?? 1;
-
-            $resolveCategory = function (string $raw) use (&$categoryMap): ?int {
-                $raw = trim($raw);
-                if ($raw === '' || strtolower($raw) === 'nan') return null;
-                if (str_starts_with(strtolower($raw), 'http')) return null;
-                if (is_numeric($raw)) return (int)$raw > 0 ? (int)$raw : null;
-
-                $key = strtolower($raw);
-                if (!isset($categoryMap[$key])) {
-                    $newCat = ProductCategory::create([
-                        'name' => ucwords($raw),
-                        'code' => \Illuminate\Support\Str::slug($raw),
-                    ]);
-                    $categoryMap[$key] = $newCat;
-                }
-                return $categoryMap[$key]->id;
-            };
-
-            $getFallbackCategoryId = function () use (&$categoryMap): int {
-                if ($categoryMap->isNotEmpty()) return $categoryMap->first()->id;
-                $cat = ProductCategory::create(['name' => 'Imported', 'code' => 'imported']);
-                $categoryMap['imported'] = $cat;
-                return $cat->id;
-            };
-
-            $resolveSubcategory = function (string $raw) use (&$subcategoryMap): ?int {
-                $raw = trim($raw);
-                if ($raw === '' || strtolower($raw) === 'nan') return null;
-                if (is_numeric($raw)) return (int)$raw > 0 ? (int)$raw : null;
-
-                $key = strtolower($raw);
-                if (!isset($subcategoryMap[$key])) {
-                    $newSub = ProductSubcategory::create(['name' => ucwords($raw)]);
-                    $subcategoryMap[$key] = $newSub;
-                }
-                return $subcategoryMap[$key]->id;
-            };
-
-            // ── First pass ────────────────────────────────────────────────
-            $parsedRows  = [];
-            $lastProduct = [];
-            $seenVarSKUs = [];
-
-            foreach ($rows as $row) {
-                $rowValues = array_filter(array_map('trim', array_map('strval', $row)));
-                if (empty($rowValues)) continue;
-
-                $row    = array_map('strval', $row);
-                $rowPad = array_pad(array_slice($row, 0, $colCount), $colCount, '');
-                $data   = array_combine($header, $rowPad);
-
-                $productSku = trim($data['product sku'] ?? '');
-                if (str_starts_with($productSku, '←') || $productSku === '') continue;
-
-                $productName = trim($data['product name'] ?? '');
-                $isNan       = strtolower($productName) === 'nan';
-
-                if ($productName === '' || $isNan) {
-                    if (isset($lastProduct[$productSku])) {
-                        foreach ([
-                            'product name', 'product barcode', 'brand', 'category id', 'subcategory id', 'unit id',
-                            'item type', 'description', 'vendor id', 'weight', 'sku opening date',
-                            'cmt cost', 'cost price', 'selling price', 'compare at price',
-                            'opening stock', 'reorder level', 'max stock level', 'min order qty',
-                        ] as $col) {
-                            if (($data[$col] ?? '') === '' || strtolower($data[$col] ?? '') === 'nan') {
-                                $data[$col] = $lastProduct[$productSku][$col] ?? '';
-                            }
-                        }
-                    }
-                } else {
-                    $lastProduct[$productSku] = $data;
-                }
-
-                $variationSku = trim($data['variation sku'] ?? '');
-                if ($variationSku !== '') {
-                    if (isset($seenVarSKUs[$variationSku])) {
-                        $engravingKey = strtolower('add engraving?');
-                        $prevData     = &$seenVarSKUs[$variationSku]['data'];
-                        $prevEng      = strtoupper(trim($prevData[$engravingKey] ?? ''));
-                        $currEng      = strtoupper(trim($data[$engravingKey] ?? ''));
-
-                        if ($prevEng !== '' && $currEng !== '') {
-                            $prevData['variation sku'] = $variationSku . '-' . $prevEng;
-                            $data['variation sku']     = $variationSku . '-' . $currEng;
-                        }
-                    } else {
-                        $seenVarSKUs[$variationSku] = ['data' => &$data];
-                    }
-                }
-
-                $parsedRows[] = $data;
-            }
-
-            $importedProductSKUs   = [];
-            $importedVariationSKUs = [];
-            $productsCreated  = 0; $productsUpdated  = 0; $productsFailed  = 0;
-            $variationsCreated = 0; $variationsUpdated = 0; $variationsFailed = 0;
-
-            // ── Second pass ───────────────────────────────────────────────
-            foreach ($parsedRows as $rowIndex => $rowData) {
-                $productSku   = trim($rowData['product sku']   ?? '');
-                $variationSku = trim($rowData['variation sku'] ?? '');
-
-                if ($productSku === '') continue;
-
-                $importedProductSKUs[] = $productSku;
-
-                $categoryId    = $resolveCategory($rowData['category id'] ?? '');
-                if ($categoryId === null) $categoryId = $getFallbackCategoryId();
-                $subcategoryId = $resolveSubcategory($rowData['subcategory id'] ?? '');
-
-                $rawUnitId = trim($rowData['unit id'] ?? '');
-                $unitId    = is_numeric($rawUnitId) && (int)$rawUnitId > 0 ? (int)$rawUnitId : $defaultUnit;
-
-                try {
-                    $productName = trim($rowData['product name'] ?? '');
-                    if (strtolower($productName) === 'nan') $productName = '';
-
-                    if ($productName !== '') {
-                        $conflict = Product::where('name', $productName)->where('sku', '!=', $productSku)->exists();
-                        if ($conflict) $productName .= ' [' . $productSku . ']';
-                    }
-
-                    $rawSkuOpeningDate = trim($rowData['sku opening date'] ?? '');
-                    $skuOpeningDate    = null;
-                    if ($rawSkuOpeningDate !== '' && strtolower($rawSkuOpeningDate) !== 'nan') {
-                        try {
-                            $skuOpeningDate = \Carbon\Carbon::parse($rawSkuOpeningDate)->format('Y-m-d');
-                        } catch (\Throwable $dateEx) {
-                            $skuOpeningDate = null; // ignore unparseable dates rather than failing the row
-                        }
-                    }
-
-                    $rawProductBarcode = trim($rowData['product barcode'] ?? '');
-
-                    $wasNew  = !Product::where('sku', $productSku)->exists();
-                    $product = Product::updateOrCreate(
-                        ['sku' => $productSku],
-                        [
-                            'name'              => $productName,
-                            'brand'             => trim($rowData['brand'] ?? '') ?: null,
-                            'barcode'           => $rawProductBarcode !== '' && strtolower($rawProductBarcode) !== 'nan' ? $rawProductBarcode : null,
-                            'sku_opening_date'  => $skuOpeningDate,
-                            'category_id'       => $categoryId,
-                            'subcategory_id'    => $subcategoryId,
-                            'measurement_unit'  => $unitId,
-                            'item_type'         => trim($rowData['item type'] ?? 'fg') ?: 'fg',
-                            'description'       => trim($rowData['description'] ?? '') ?: null,
-                            'vendor_id'         => is_numeric($rowData['vendor id'] ?? '') && (int)($rowData['vendor id']) > 0
-                                                   ? (int)$rowData['vendor id'] : null,
-                            'weight'            => is_numeric($rowData['weight']           ?? null) ? (float)$rowData['weight']           : null,
-                            'cmt_cost'          => is_numeric($rowData['cmt cost']          ?? null) ? (float)$rowData['cmt cost']          : 0,
-                            'cost_price'        => is_numeric($rowData['cost price']        ?? null) ? (float)$rowData['cost price']        : 0,
-                            'selling_price'     => is_numeric($rowData['selling price']     ?? null) ? (float)$rowData['selling price']     : 0,
-                            'compare_at_price'  => is_numeric($rowData['compare at price']  ?? null) ? (float)$rowData['compare at price']  : null,
-                            'opening_stock'     => is_numeric($rowData['opening stock']     ?? null) ? (float)$rowData['opening stock']     : 0,
-                            'reorder_level'     => is_numeric($rowData['reorder level']     ?? null) ? (float)$rowData['reorder level']     : 0,
-                            'max_stock_level'   => is_numeric($rowData['max stock level']   ?? null) ? (float)$rowData['max stock level']   : 0,
-                            'minimum_order_qty' => is_numeric($rowData['min order qty']     ?? null) ? (float)$rowData['min order qty']     : 1,
-                        ]
-                    );
-                    $wasNew ? $productsCreated++ : $productsUpdated++;
-
-                } catch (\Throwable $e) {
-                    $productsFailed++;
-                    Log::error('[Bulk Import] Product failed', ['row' => $rowIndex + 2, 'sku' => $productSku, 'error' => $e->getMessage()]);
-                    continue;
-                }
-
-                if ($variationSku === '') continue;
-
-                try {
-                    $importedVariationSKUs[] = $variationSku;
-
-                    $wasNew    = !ProductVariation::where('sku', $variationSku)->exists();
-                    $variation = ProductVariation::updateOrCreate(
-                        ['sku' => $variationSku],
-                        [
-                            'product_id'     => $product->id,
-                            'barcode'        => trim($rowData['variation barcode'] ?? '') ?: null,
-                            'stock_quantity' => is_numeric($rowData['variation stock'] ?? null) ? (float)$rowData['variation stock'] : 0,
-                        ]
-                    );
-
-                    $syncIds = [];
-                    foreach ($dbAttributes as $attrKey => $attribute) {
-                        $value = trim($rowData[$attrKey] ?? '');
-                        if ($value === '' || strtolower($value) === 'nan') continue;
-
-                        $attrValue = AttributeValue::firstOrCreate(
-                            ['attribute_id' => $attribute->id, 'value' => ucfirst(strtolower($value))]
-                        );
-                        $syncIds[] = $attrValue->id;
-                    }
-                    $variation->attributeValues()->sync($syncIds);
-
-                    $wasNew ? $variationsCreated++ : $variationsUpdated++;
-
-                } catch (\Throwable $e) {
-                    $variationsFailed++;
-                    Log::error('[Bulk Import] Variation failed', ['row' => $rowIndex + 2, 'variation_sku' => $variationSku, 'error' => $e->getMessage()]);
-                }
-            }
-
-            if ($request->boolean('delete_missing')) {
-                if (!empty($importedVariationSKUs)) ProductVariation::whereNotIn('sku', $importedVariationSKUs)->delete();
-                if (!empty($importedProductSKUs))   Product::whereNotIn('sku', $importedProductSKUs)->delete();
-            }
-
-            DB::commit();
-
-            $summary   = "Products: {$productsCreated} created, {$productsUpdated} updated"
-                . ($productsFailed  > 0 ? ", {$productsFailed} failed"  : '')
-                . " | Variations: {$variationsCreated} created, {$variationsUpdated} updated"
-                . ($variationsFailed > 0 ? ", {$variationsFailed} failed" : '');
-            $flashType = ($productsFailed > 0 || $variationsFailed > 0) ? 'error' : 'success';
-
-            return back()->with($flashType, "Import complete. {$summary}" . ($request->boolean('delete_missing') ? ' | Missing deleted.' : ''));
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('[Bulk Import] Fatal', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            return back()->with('error', 'Bulk import failed: ' . $e->getMessage());
         }
+
+        // If the import already finished, force the bar to 100%.
+        if (in_array($import->status, ['completed', 'failed'], true)) {
+            $progress = 100;
+        }
+
+        return response()->json([
+            'id'       => $import->id,
+            'status'   => $import->status,
+            'progress' => $progress,
+            'message'  => $import->message,
+            'counts'   => [
+                'products_created'   => $import->products_created,
+                'products_updated'   => $import->products_updated,
+                'products_failed'    => $import->products_failed,
+                'variations_created' => $import->variations_created,
+                'variations_updated' => $import->variations_updated,
+                'variations_failed'  => $import->variations_failed,
+            ],
+        ]);
     }
 
     // ================================================================

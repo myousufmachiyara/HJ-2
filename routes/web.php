@@ -60,6 +60,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template')->middleware('check.permission:products.create');
     Route::get('/products/bulk-export',          [ProductController::class, 'bulkExport'])->name('products.bulk-export')->middleware('check.permission:products.create');
     Route::post('/products/bulk-import',         [ProductController::class, 'bulkImport'])->name('products.bulk-import')->middleware('check.permission:products.create');
+    Route::get('/products/import-status/{id}',   [ProductController::class, 'importStatus'])->name('products.import-status')->middleware('check.permission:products.index');
 
     // ── Purchase helpers ──────────────────────────────────────────────
     Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices'])->name('product.invoices');
