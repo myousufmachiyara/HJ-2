@@ -199,7 +199,56 @@
 
   // 🔹 Set index to start after existing rows
   var index = $('#Purchase1Table tr').length + 1;
+  // 🔹 Download a blank Excel template
+  function downloadImportTemplate() {
+    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit (Shortcode)', 'Price'];
 
+    // Sample rows sourced from real product barcodes (Bronze Orange Kurta Trouser AH 107)
+    const examples = [
+      ['391894000000', 1, 'PCS', 1999.00], // HAS-PGKTA-8-9Y-2
+      ['873856000000', 1, 'PCS', 1999.00], // HAS-PGKTA-7-8Y-2
+      ['781817000000', 1, 'PCS', 1999.00], // HAS-PGKTA-3-4Y-2
+      ['471620000000', 1, 'PCS', 1999.00], // HAS-PGKTA-2-3Y-2
+      ['116973000000', 1, 'PCS', 1999.00], // HAS-PGKTA-4-5Y-2
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
+    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 12 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.writeFile(wb, 'purchase_items_import_template.xlsx');
+  }
+
+  // 🔹 Read the uploaded file
+  function handleExcelImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        const dataRows = rows.slice(1).filter(r => r.length && String(r[0]).trim() !== '');
+        if (!dataRows.length) {
+          alert('No item rows found in the uploaded file.');
+          return;
+        }
+        importRowsSequentially(dataRows, 0);
+      } catch (err) {
+        console.error(err);
+        alert('Could not read the uploaded file. Please make sure it matches the template format.');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  
   $(document).ready(function () {
     // Initialize select2 for existing rows
     $('#Purchase1Table .select2-js').select2({ width: '100%', dropdownAutoWidth: true });

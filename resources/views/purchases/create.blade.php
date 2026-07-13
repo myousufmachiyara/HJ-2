@@ -176,10 +176,20 @@
 
   // 🔹 Download a blank Excel template
   function downloadImportTemplate() {
-    const headers = [['Item Code (Barcode)', 'Quantity', 'Unit (Shortcode)', 'Price']];
-    const example = [['ITM-0001', 5, 'PCS', 120.50]];
-    const ws = XLSX.utils.aoa_to_sheet(headers.concat(example));
+    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit (Shortcode)', 'Price'];
+
+    // Sample rows sourced from real product barcodes (Bronze Orange Kurta Trouser AH 107)
+    const examples = [
+      ['391894000000', 1, 'PCS', 1999.00], // HAS-PGKTA-8-9Y-2
+      ['873856000000', 1, 'PCS', 1999.00], // HAS-PGKTA-7-8Y-2
+      ['781817000000', 1, 'PCS', 1999.00], // HAS-PGKTA-3-4Y-2
+      ['471620000000', 1, 'PCS', 1999.00], // HAS-PGKTA-2-3Y-2
+      ['116973000000', 1, 'PCS', 1999.00], // HAS-PGKTA-4-5Y-2
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
     ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 12 }];
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Items');
     XLSX.writeFile(wb, 'purchase_items_import_template.xlsx');
