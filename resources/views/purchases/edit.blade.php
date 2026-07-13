@@ -199,21 +199,21 @@
 
   // 🔹 Set index to start after existing rows
   var index = $('#Purchase1Table tr').length + 1;
-  // 🔹 Download a blank Excel template
+
   function downloadImportTemplate() {
-    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit (Shortcode)', 'Price'];
+    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit ID', 'Price'];
 
     // Sample rows sourced from real product barcodes (Bronze Orange Kurta Trouser AH 107)
     const examples = [
-      ['391894000000', 1, 'PCS', 1999.00], // HAS-PGKTA-8-9Y-2
-      ['873856000000', 1, 'PCS', 1999.00], // HAS-PGKTA-7-8Y-2
-      ['781817000000', 1, 'PCS', 1999.00], // HAS-PGKTA-3-4Y-2
-      ['471620000000', 1, 'PCS', 1999.00], // HAS-PGKTA-2-3Y-2
-      ['116973000000', 1, 'PCS', 1999.00], // HAS-PGKTA-4-5Y-2
+      ['391894000000', 1, 1, 1999.00], // HAS-PGKTA-8-9Y-2
+      ['873856000000', 1, 1, 1999.00], // HAS-PGKTA-7-8Y-2
+      ['781817000000', 1, 1, 1999.00], // HAS-PGKTA-3-4Y-2
+      ['471620000000', 1, 1, 1999.00], // HAS-PGKTA-2-3Y-2
+      ['116973000000', 1, 1, 1999.00], // HAS-PGKTA-4-5Y-2
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
-    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 12 }];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Items');
@@ -238,7 +238,7 @@
           alert('No item rows found in the uploaded file.');
           return;
         }
-        importRowsSequentially(dataRows, 0);
+        importRowsSequentially(dataRows, 0, []);
       } catch (err) {
         console.error(err);
         alert('Could not read the uploaded file. Please make sure it matches the template format.');
@@ -248,7 +248,99 @@
     };
     reader.readAsArrayBuffer(file);
   }
-  
+
+  // 🔹 Append rows one at a time, resolving each barcode via your existing endpoint
+  function importRowsSequentially(rows, i, failures) {
+    if (i >= rows.length) {
+      if (failures.length) {
+        alert('Import finished with issues:\n' + failures.join('\n'));
+      } else {
+        console.log('Import completed successfully — all rows matched.');
+      }
+      return;
+    }
+
+    const [barcodeRaw, qtyRaw, unitIdRaw, priceRaw] = rows[i];
+    const barcode = String(barcodeRaw ?? '').trim();
+    const qty     = parseFloat(qtyRaw) || 0;
+    const unitId  = parseInt(unitIdRaw) || 1; // default to unit_id 1 if missing/invalid
+    const price   = parseFloat(priceRaw) || 0;
+
+    if (!barcode) { importRowsSequentially(rows, i + 1, failures); return; }
+
+    addNewRow();
+    const $newRow = $('#Purchase1Table tbody tr').last();
+    const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
+
+    $.ajax({
+      url: '/get-product-by-code/' + encodeURIComponent(barcode),
+      method: 'GET',
+      success: function (res) {
+        if (!res || !res.success) {
+          failures.push(`Barcode ${barcode}: product not found`);
+          return;
+        }
+
+        const $productSelect   = $newRow.find('.product-select');
+        const $variationSelect = $newRow.find('.variation-select');
+
+        if (res.type === 'variation') {
+          const v = res.variation;
+
+          // Set value WITHOUT '.select2' namespace to avoid re-firing the
+          // delegated $(document).on('change', '.product-select', ...) handler,
+          // which would call loadVariations() and wipe out the variation we set below.
+          $productSelect.val(v.product_id);
+          if ($productSelect.hasClass('select2-hidden-accessible')) {
+            $productSelect.trigger('change.select2'); // updates the select2 UI only
+          }
+
+          $variationSelect
+            .html(`<option value="${v.id}" selected>${v.sku}</option>`)
+            .prop('disabled', false);
+          if ($variationSelect.hasClass('select2-hidden-accessible')) {
+            $variationSelect.trigger('change.select2');
+          }
+
+          $newRow.find('.product-code').val(v.barcode);
+          $newRow.find('input[name*="[barcode]"]').val(v.barcode);
+
+        } else if (res.type === 'product') {
+          const p = res.product;
+
+          $productSelect.val(p.id);
+          if ($productSelect.hasClass('select2-hidden-accessible')) {
+            $productSelect.trigger('change.select2');
+          }
+
+          $newRow.find('.product-code').val(p.barcode);
+          $newRow.find('input[name*="[barcode]"]').val(p.barcode);
+
+          loadVariations($newRow, p.id);
+        } else {
+          failures.push(`Barcode ${barcode}: unrecognized response type`);
+        }
+
+        // Set unit directly by ID — no shortcode text matching
+        $(`#unit${rowIdx}`).val(String(unitId));
+        if ($(`#unit${rowIdx}`).hasClass('select2-hidden-accessible')) {
+          $(`#unit${rowIdx}`).trigger('change.select2');
+        }
+
+        $(`#pur_qty${rowIdx}`).val(qty);
+        $(`#pur_price${rowIdx}`).val(price);
+        rowTotal(rowIdx);
+      },
+      error: function (xhr) {
+        console.error('Import lookup failed', barcode, xhr.status, xhr.responseText);
+        failures.push(`Barcode ${barcode}: request failed (${xhr.status})`);
+      },
+      complete: function () {
+        importRowsSequentially(rows, i + 1, failures);
+      }
+    });
+  }
+
   $(document).ready(function () {
     // Initialize select2 for existing rows
     $('#Purchase1Table .select2-js').select2({ width: '100%', dropdownAutoWidth: true });
