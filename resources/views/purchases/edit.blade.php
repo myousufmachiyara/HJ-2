@@ -59,7 +59,17 @@
               <textarea name="remarks" class="form-control" rows="3">{{ $invoice->remarks }}</textarea>
             </div>
           </div>
-
+          <div class="d-flex justify-content-end mb-2">
+            <div class="btn-group">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="downloadImportTemplate()">
+                <i class="fas fa-file-download"></i> Download Import Template
+              </button>
+              <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('excelImportInput').click()">
+                <i class="fas fa-file-upload"></i> Import from Excel
+              </button>
+              <input type="file" id="excelImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleExcelImport(event)">
+            </div>
+          </div>
           <div class="table-responsive mb-3">
             <table class="table table-bordered" id="purchaseTable">
               <thead>

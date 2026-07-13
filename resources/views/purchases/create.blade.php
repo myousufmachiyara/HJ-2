@@ -56,7 +56,17 @@
               <textarea name="remarks" class="form-control" rows="3"></textarea>
             </div>
           </div>
-
+          <div class="d-flex justify-content-end mb-2">
+            <div class="btn-group">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="downloadImportTemplate()">
+                <i class="fas fa-file-download"></i> Download Import Template
+              </button>
+              <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('excelImportInput').click()">
+                <i class="fas fa-file-upload"></i> Import from Excel
+              </button>
+              <input type="file" id="excelImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleExcelImport(event)">
+            </div>
+          </div>
           <div class="table-responsive mb-3">
             <table class="table table-bordered" id="purchaseTable">
               <thead>
@@ -164,6 +174,108 @@
   var products = @json($products);
   var index = 2;
 
+  // 🔹 Download a blank Excel template
+  function downloadImportTemplate() {
+    const headers = [['Item Code (Barcode)', 'Quantity', 'Unit (Shortcode)', 'Price']];
+    const example = [['ITM-0001', 5, 'PCS', 120.50]];
+    const ws = XLSX.utils.aoa_to_sheet(headers.concat(example));
+    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 16 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.writeFile(wb, 'purchase_items_import_template.xlsx');
+  }
+
+  // 🔹 Read the uploaded file
+  function handleExcelImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        const dataRows = rows.slice(1).filter(r => r.length && String(r[0]).trim() !== '');
+        if (!dataRows.length) {
+          alert('No item rows found in the uploaded file.');
+          return;
+        }
+        importRowsSequentially(dataRows, 0);
+      } catch (err) {
+        console.error(err);
+        alert('Could not read the uploaded file. Please make sure it matches the template format.');
+      } finally {
+        event.target.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // 🔹 Append rows one at a time, resolving each barcode via your existing endpoint
+  function importRowsSequentially(rows, i) {
+    if (i >= rows.length) return;
+
+    const [barcodeRaw, qtyRaw, unitRaw, priceRaw] = rows[i];
+    const barcode = String(barcodeRaw ?? '').trim();
+    const qty     = parseFloat(qtyRaw) || 0;
+    const unitTxt = String(unitRaw ?? '').trim().toLowerCase();
+    const price   = parseFloat(priceRaw) || 0;
+
+    if (!barcode) { importRowsSequentially(rows, i + 1); return; }
+
+    addNewRow();
+    const $newRow = $('#Purchase1Table tbody tr').last();
+    const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
+
+    $.ajax({
+      url: '/get-product-by-code/' + encodeURIComponent(barcode),
+      method: 'GET',
+      success: function (res) {
+        if (res && res.success) {
+          const $productSelect   = $newRow.find('.product-select');
+          const $variationSelect = $newRow.find('.variation-select');
+
+          if (res.type === 'variation') {
+            const v = res.variation;
+            $productSelect.val(v.product_id).trigger('change.select2');
+            $variationSelect.html(`<option value="${v.id}" selected>${v.sku}</option>`)
+                            .prop('disabled', false).trigger('change');
+            $newRow.find('.product-code').val(v.barcode);
+            $newRow.find('input[name*="[barcode]"]').val(v.barcode);
+          } else if (res.type === 'product') {
+            const p = res.product;
+            $productSelect.val(p.id).trigger('change.select2');
+            $newRow.find('.product-code').val(p.barcode);
+            $newRow.find('input[name*="[barcode]"]').val(p.barcode);
+            loadVariations($newRow, p.id);
+          }
+
+          if (unitTxt) {
+            const matched = units.find(u =>
+              String(u.shortcode).toLowerCase() === unitTxt ||
+              String(u.name).toLowerCase() === unitTxt
+            );
+            if (matched) $(`#unit${rowIdx}`).val(String(matched.id)).trigger('change.select2');
+          }
+
+          $(`#pur_qty${rowIdx}`).val(qty);
+          $(`#pur_price${rowIdx}`).val(price);
+          rowTotal(rowIdx);
+        } else {
+          console.warn('Import: product not found for barcode', barcode);
+        }
+      },
+      error: function () {
+        console.warn('Import: lookup failed for barcode', barcode);
+      },
+      complete: function () {
+        importRowsSequentially(rows, i + 1);
+      }
+    });
+  }
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
