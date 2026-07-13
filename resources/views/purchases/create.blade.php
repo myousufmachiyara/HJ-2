@@ -226,7 +226,6 @@
   }
 
   // 🔹 Append rows one at a time, resolving each barcode via your existing endpoint
-  // NOTE: only ONE definition of this function now — the old duplicate is removed.
   function importRowsSequentially(rows, i, failures) {
     if (i >= rows.length) {
       if (failures.length) {
@@ -247,7 +246,7 @@
 
     addNewRow();
     const $newRow = $('#Purchase1Table tbody tr').last();
-    const rowIdx  = index - 1;
+    const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
 
     $.ajax({
       url: '/get-product-by-code/' + encodeURIComponent(barcode),
@@ -264,17 +263,15 @@
         if (res.type === 'variation') {
           const v = res.variation;
 
-          $productSelect.val(v.product_id);
-          if ($productSelect.hasClass('select2-hidden-accessible')) {
-            $productSelect.trigger('change.select2');
-          }
+          // Prevent the delegated change handler from re-running loadVariations()
+          // and wiping out the variation option we set manually below.
+          $newRow.data('skipAutoLoad', true);
+          $productSelect.val(v.product_id).trigger('change'); // plain 'change' → updates Select2 label
 
           $variationSelect
             .html(`<option value="${v.id}" selected>${v.sku}</option>`)
-            .prop('disabled', false);
-          if ($variationSelect.hasClass('select2-hidden-accessible')) {
-            $variationSelect.trigger('change.select2');
-          }
+            .prop('disabled', false)
+            .trigger('change'); // plain 'change' → updates Select2 label
 
           $newRow.find('.product-code').val(v.barcode);
           $newRow.find('input[name*="[barcode]"]').val(v.barcode);
@@ -282,10 +279,8 @@
         } else if (res.type === 'product') {
           const p = res.product;
 
-          $productSelect.val(p.id);
-          if ($productSelect.hasClass('select2-hidden-accessible')) {
-            $productSelect.trigger('change.select2');
-          }
+          $newRow.data('skipAutoLoad', true);
+          $productSelect.val(p.id).trigger('change'); // plain 'change'
 
           $newRow.find('.product-code').val(p.barcode);
           $newRow.find('input[name*="[barcode]"]').val(p.barcode);
@@ -295,10 +290,7 @@
           failures.push(`Barcode ${barcode}: unrecognized response type`);
         }
 
-        $(`#unit${rowIdx}`).val(String(unitId));
-        if ($(`#unit${rowIdx}`).hasClass('select2-hidden-accessible')) {
-          $(`#unit${rowIdx}`).trigger('change.select2');
-        }
+        $(`#unit${rowIdx}`).val(String(unitId)).trigger('change'); // plain 'change'
 
         $(`#pur_qty${rowIdx}`).val(qty);
         $(`#pur_price${rowIdx}`).val(price);
@@ -317,8 +309,17 @@
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
+    // 🔹 Manual Product selection flow
     $(document).on('change', '.product-select', function () {
       const row = $(this).closest('tr');
+
+      // Skip auto-load if this row was just populated by the Excel import,
+      // since the import already set the variation manually.
+      if (row.data('skipAutoLoad')) {
+        row.removeData('skipAutoLoad');
+        return;
+      }
+
       const productId = $(this).val();
       const preselectVariationId = $(this).data('preselectVariationId') || null;
       $(this).removeData('preselectVariationId');
@@ -333,6 +334,7 @@
       }
     });
 
+    // 🔹 Barcode scanning flow
     $(document).on('blur', '.product-code', function () {
       const row = $(this).closest('tr');
       const barcode = $(this).val().trim();
@@ -357,22 +359,30 @@
 
           if (res.type === 'variation') {
             const variation = res.variation;
+
             $productSelect.val(variation.product_id).trigger('change.select2');
+
             $variationSelect.html(`<option value="${variation.id}" selected>${variation.sku}</option>`)
                             .prop('disabled', false)
                             .trigger('change');
+
             row.find('.product-code').val(variation.barcode);
             row.find('input[name*="[barcode]"]').val(variation.barcode);
+
             row.find('.quantity').focus();
           }
 
           if (res.type === 'product') {
             const product = res.product;
+
             if ($productSelect.find(`option[value="${product.id}"]`).length) {
               $productSelect.val(product.id).trigger('change.select2');
+
               row.find('.product-code').val(product.barcode);
               row.find('input[name*="[barcode]"]').val(product.barcode);
+
               loadVariations(row, product.id);
+
               setTimeout(() => {
                 $variationSelect.select2('open');
               }, 300);
@@ -392,6 +402,7 @@
       });
     });
 
+    // 🔹 POS: Auto-add row when user presses Enter on Qty
     $(document).on('keypress', '.quantity', function (e) {
       if (e.which === 13) {
         e.preventDefault();
@@ -533,6 +544,7 @@
     return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
+  // 🔹 Load Variations
   function loadVariations(row, productId, preselectVariationId = null) {
     const $variationSelect = row.find('.variation-select');
     $variationSelect.html('<option>Loading...</option>').prop('disabled', true);
