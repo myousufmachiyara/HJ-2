@@ -170,14 +170,16 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <script>
   var products = @json($products);
+  var units    = @json($units);
   var index = 2;
 
+  // 🔹 Download a blank Excel template (pre-filled with sample barcodes + unit_id)
   function downloadImportTemplate() {
     const headers = ['Item Code (Barcode)', 'Quantity', 'Unit ID', 'Price'];
 
-    // Sample rows sourced from real product barcodes (Bronze Orange Kurta Trouser AH 107)
     const examples = [
       ['391894000000', 1, 1, 1999.00], // HAS-PGKTA-8-9Y-2
       ['873856000000', 1, 1, 1999.00], // HAS-PGKTA-7-8Y-2
@@ -224,6 +226,7 @@
   }
 
   // 🔹 Append rows one at a time, resolving each barcode via your existing endpoint
+  // NOTE: only ONE definition of this function now — the old duplicate is removed.
   function importRowsSequentially(rows, i, failures) {
     if (i >= rows.length) {
       if (failures.length) {
@@ -237,14 +240,14 @@
     const [barcodeRaw, qtyRaw, unitIdRaw, priceRaw] = rows[i];
     const barcode = String(barcodeRaw ?? '').trim();
     const qty     = parseFloat(qtyRaw) || 0;
-    const unitId  = parseInt(unitIdRaw) || 1; // default to unit_id 1 if missing/invalid
+    const unitId  = parseInt(unitIdRaw) || 1;
     const price   = parseFloat(priceRaw) || 0;
 
     if (!barcode) { importRowsSequentially(rows, i + 1, failures); return; }
 
     addNewRow();
     const $newRow = $('#Purchase1Table tbody tr').last();
-    const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
+    const rowIdx  = index - 1;
 
     $.ajax({
       url: '/get-product-by-code/' + encodeURIComponent(barcode),
@@ -261,12 +264,9 @@
         if (res.type === 'variation') {
           const v = res.variation;
 
-          // Set value WITHOUT '.select2' namespace to avoid re-firing the
-          // delegated $(document).on('change', '.product-select', ...) handler,
-          // which would call loadVariations() and wipe out the variation we set below.
           $productSelect.val(v.product_id);
           if ($productSelect.hasClass('select2-hidden-accessible')) {
-            $productSelect.trigger('change.select2'); // updates the select2 UI only
+            $productSelect.trigger('change.select2');
           }
 
           $variationSelect
@@ -295,7 +295,6 @@
           failures.push(`Barcode ${barcode}: unrecognized response type`);
         }
 
-        // Set unit directly by ID — no shortcode text matching
         $(`#unit${rowIdx}`).val(String(unitId));
         if ($(`#unit${rowIdx}`).hasClass('select2-hidden-accessible')) {
           $(`#unit${rowIdx}`).trigger('change.select2');
@@ -315,72 +314,9 @@
     });
   }
 
-  // 🔹 Append rows one at a time, resolving each barcode via your existing endpoint
-  function importRowsSequentially(rows, i) {
-    if (i >= rows.length) return;
-
-    const [barcodeRaw, qtyRaw, unitRaw, priceRaw] = rows[i];
-    const barcode = String(barcodeRaw ?? '').trim();
-    const qty     = parseFloat(qtyRaw) || 0;
-    const unitTxt = String(unitRaw ?? '').trim().toLowerCase();
-    const price   = parseFloat(priceRaw) || 0;
-
-    if (!barcode) { importRowsSequentially(rows, i + 1); return; }
-
-    addNewRow();
-    const $newRow = $('#Purchase1Table tbody tr').last();
-    const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
-
-    $.ajax({
-      url: '/get-product-by-code/' + encodeURIComponent(barcode),
-      method: 'GET',
-      success: function (res) {
-        if (res && res.success) {
-          const $productSelect   = $newRow.find('.product-select');
-          const $variationSelect = $newRow.find('.variation-select');
-
-          if (res.type === 'variation') {
-            const v = res.variation;
-            $productSelect.val(v.product_id).trigger('change.select2');
-            $variationSelect.html(`<option value="${v.id}" selected>${v.sku}</option>`)
-                            .prop('disabled', false).trigger('change');
-            $newRow.find('.product-code').val(v.barcode);
-            $newRow.find('input[name*="[barcode]"]').val(v.barcode);
-          } else if (res.type === 'product') {
-            const p = res.product;
-            $productSelect.val(p.id).trigger('change.select2');
-            $newRow.find('.product-code').val(p.barcode);
-            $newRow.find('input[name*="[barcode]"]').val(p.barcode);
-            loadVariations($newRow, p.id);
-          }
-
-          if (unitTxt) {
-            const matched = units.find(u =>
-              String(u.shortcode).toLowerCase() === unitTxt ||
-              String(u.name).toLowerCase() === unitTxt
-            );
-            if (matched) $(`#unit${rowIdx}`).val(String(matched.id)).trigger('change.select2');
-          }
-
-          $(`#pur_qty${rowIdx}`).val(qty);
-          $(`#pur_price${rowIdx}`).val(price);
-          rowTotal(rowIdx);
-        } else {
-          console.warn('Import: product not found for barcode', barcode);
-        }
-      },
-      error: function () {
-        console.warn('Import: lookup failed for barcode', barcode);
-      },
-      complete: function () {
-        importRowsSequentially(rows, i + 1);
-      }
-    });
-  }
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
-    // 🔹 Manual Product selection flow
     $(document).on('change', '.product-select', function () {
       const row = $(this).closest('tr');
       const productId = $(this).val();
@@ -397,7 +333,6 @@
       }
     });
 
-    // 🔹 Barcode scanning flow
     $(document).on('blur', '.product-code', function () {
       const row = $(this).closest('tr');
       const barcode = $(this).val().trim();
@@ -422,38 +357,22 @@
 
           if (res.type === 'variation') {
             const variation = res.variation;
-
-            // ✅ Set product
             $productSelect.val(variation.product_id).trigger('change.select2');
-
-            // ✅ Directly set variation
             $variationSelect.html(`<option value="${variation.id}" selected>${variation.sku}</option>`)
                             .prop('disabled', false)
                             .trigger('change');
-
-            // ✅ Update barcode fields
             row.find('.product-code').val(variation.barcode);
             row.find('input[name*="[barcode]"]').val(variation.barcode);
-
-            // ✅ Focus Qty field
             row.find('.quantity').focus();
           }
 
           if (res.type === 'product') {
             const product = res.product;
-
-            // ✅ Only select if it exists in dropdown
             if ($productSelect.find(`option[value="${product.id}"]`).length) {
               $productSelect.val(product.id).trigger('change.select2');
-
-              // ✅ Update barcode fields
               row.find('.product-code').val(product.barcode);
               row.find('input[name*="[barcode]"]').val(product.barcode);
-
-              // ✅ Load variations normally
               loadVariations(row, product.id);
-
-              // focus on variation after loading
               setTimeout(() => {
                 $variationSelect.select2('open');
               }, 300);
@@ -473,18 +392,14 @@
       });
     });
 
-    // 🔹 POS: Auto-add row when user presses Enter on Qty
     $(document).on('keypress', '.quantity', function (e) {
-      if (e.which === 13) { // Enter key
+      if (e.which === 13) {
         e.preventDefault();
         const row = $(this).closest('tr');
         const qty = $(this).val().trim();
 
         if (qty !== '') {
-          // Add new row
           addNewRow();
-
-          // Focus on new row's barcode
           const $newRow = $('#Purchase1Table tbody tr').last();
           $newRow.find('.product-code').focus();
         } else {
@@ -495,7 +410,6 @@
     });
   });
 
-  // 🔹 Keep all your existing functions exactly as they are
   function onItemNameChange(selectElement) {
       const row = selectElement.closest('tr');
       const selectedOption = selectElement.options[selectElement.selectedIndex];
@@ -510,14 +424,11 @@
 
       document.getElementById(`item_cod${index}`).value  = barcode;
       document.getElementById(`barcode${index}`).value   = barcode;
-
-      // ← Set cost price into price field
       document.getElementById(`pur_price${index}`).value = parseFloat(costPrice).toFixed(2);
 
       const unitSelector = $(`#unit${index}`);
       unitSelector.val(String(unitId)).trigger('change.select2');
 
-      // Recalculate row total
       rowTotal(index);
   }
 
@@ -546,7 +457,6 @@
         <td>
           <select name="items[${rowIndex}][item_id]" id="item_name${index}" class="form-control select2-js product-select" onchange="onItemNameChange(this)">
             <option value="">Select Item</option>
-            // In addNewRow() JS function — the products.map() line:
             ${products.map(product => 
               `<option value="${product.id}" 
                       data-barcode="${product.barcode}" 
@@ -623,7 +533,6 @@
     return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
-  // 🔹 Load Variations
   function loadVariations(row, productId, preselectVariationId = null) {
     const $variationSelect = row.find('.variation-select');
     $variationSelect.html('<option>Loading...</option>').prop('disabled', true);
@@ -637,7 +546,6 @@
         });
         $variationSelect.prop('disabled', false);
       } else {
-        // ✅ Only placeholder, stays disabled
         options = '<option value="" disabled selected>No Variations Available</option>';
         $variationSelect.prop('disabled', true);
       }
@@ -654,7 +562,6 @@
       }
     });
   }
-
 </script>
 
 @endsection
