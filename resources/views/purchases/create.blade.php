@@ -289,10 +289,24 @@
           } else {
             ensureOption($productSelect, productId, v.sku || v.barcode || ('Product #' + productId));
 
+            // --- TEMP DIAGNOSTICS: remove once this is confirmed fixed ---
+            console.log('DEBUG productId to select:', productId, typeof productId);
+            console.log('DEBUG matching <option> count in this row:',
+              $productSelect.find(`option[value="${productId}"]`).length);
+            console.log('DEBUG all option values in this row:',
+              $productSelect.find('option').map(function () { return this.value; }).get());
+            console.log('DEBUG native select value BEFORE set:', $productSelect[0].value);
+            // --- end temp diagnostics header ---
+
             // Prevent the delegated change handler from re-running loadVariations()
             // and wiping out the variation option we set manually below.
             $newRow.data('skipAutoLoad', true);
             $productSelect.val(productId).trigger('change'); // plain 'change' → updates Select2 label
+
+            // --- TEMP DIAGNOSTICS continued ---
+            console.log('DEBUG native select value AFTER set:', $productSelect[0].value);
+            console.log('DEBUG jQuery .val() AFTER set:', $productSelect.val());
+            // --- end temp diagnostics ---
           }
 
           $variationSelect
