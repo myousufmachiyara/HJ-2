@@ -209,6 +209,9 @@
   var products = @json($products);
   var rowIdx   = 2;
 
+  // Scan step: qty added each time the same code is (re)scanned.
+  const SCAN_INCREMENT = 1;
+
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
@@ -218,35 +221,173 @@
       if (productId) loadVariations(row, productId);
     });
 
-    $(document).on('blur', '.product-code', function () {
-      const row     = $(this).closest('tr');
-      const barcode = $(this).val().trim();
-      if (!barcode) return;
-      $.get('/get-product-by-code/' + encodeURIComponent(barcode), function (res) {
-        if (!res?.success) { alert(res?.message || 'Not found'); return; }
-        if (res.type === 'variation') {
-          row.find('.product-select').val(res.variation.product_id).trigger('change.select2');
-          row.find('.variation-select')
-             .html(`<option value="${res.variation.id}" selected>${res.variation.sku}</option>`)
-             .trigger('change');
-          row.find('.quantity').focus();
-        }
-        if (res.type === 'product') {
-          const opt = row.find(`.product-select option[value="${res.product.id}"]`);
-          row.find('.product-select').val(res.product.id).trigger('change.select2');
-          if (opt.data('price')) row.find('input[id^="price_"]').val(opt.data('price'));
-          loadVariations(row, res.product.id);
-        }
-      });
+    // 🔹 Hardware scanner Enter → intercept + treat as scan complete
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) {
+        e.preventDefault();
+        $(this).trigger('scan:submit');
+      }
     });
 
+    // 🔹 Barcode scan handler (repeat-increments + auto-next-line)
+    $(document).on('scan:submit', '.product-code', function () {
+      const $input  = $(this);
+      const row     = $input.closest('tr');
+      const barcode = $input.val().trim();
+      if (!barcode) return;
+
+      $.get('/get-product-by-code/' + encodeURIComponent(barcode), function (res) {
+        if (!res || !res.success) { alert((res && res.message) || 'Not found'); $input.val('').focus(); return; }
+
+        if (res.type === 'variation') {
+          handleScannedVariation(row, res.variation.product_id, res.variation.id, res.variation.sku, res.variation.price);
+        } else if (res.type === 'product') {
+          handleScannedProduct(row, res.product);
+        }
+      }).fail(() => alert('Error fetching product.'));
+    });
+
+    // Manual typing + tab-out: same path, only if product not yet chosen
+    $(document).on('blur', '.product-code', function () {
+      const barcode = $(this).val().trim();
+      if (barcode && !$(this).closest('tr').find('.product-select').val()) {
+        $(this).trigger('scan:submit');
+      }
+    });
+
+    // Enter on qty → advance to next scan box (no empty-row pile-up)
     $(document).on('keypress', '.quantity', function (e) {
       if (e.which === 13) {
         e.preventDefault();
-        if ($(this).val().trim()) addRow();
+        const $last = $('#SaleTableBody tr').last();
+        if (!rowIsEmpty($last)) addRow();
+        focusLastScanBox();
       }
     });
   });
+
+  // ── Row index helper (rows use id suffixes: product_1, qty_1, …) ──
+  function rowIndexOf($row) {
+    const id = $row.find('.product-select').attr('id') || '';
+    return id.replace('product_', '');
+  }
+
+  // ── Duplicate-detection helpers ──────────────────────────────────────
+  function findRowByVariation(productId, variationId) {
+    let match = null;
+    $('#SaleTableBody tr').each(function () {
+      const $r  = $(this);
+      const pid = $r.find('.product-select').val();
+      const vid = $r.find('.variation-select').val() || '';
+      const wantV = (variationId ?? '') + '';
+      if (String(pid) === String(productId) && String(vid) === wantV) {
+        match = $r;
+        return false;
+      }
+    });
+    return match;
+  }
+
+  function rowIsEmpty($row) {
+    return !$row.find('.product-select').val();
+  }
+
+  function flashRow($row) {
+    $row.addClass('table-success');
+    setTimeout(() => $row.removeClass('table-success'), 600);
+  }
+
+  function focusLastScanBox() {
+    $('#SaleTableBody tr').last().find('.product-code').focus();
+  }
+
+  function appendAndGetRow() {
+    addRow();
+    return $('#SaleTableBody tr').last();
+  }
+
+  function openNextScanRow() {
+    const $last = $('#SaleTableBody tr').last();
+    const $next = rowIsEmpty($last) ? $last : appendAndGetRow();
+    $next.find('.product-code').focus();
+  }
+
+  // ── Scan handlers ────────────────────────────────────────────────────
+  function handleScannedVariation(scanRow, productId, variationId, sku, price) {
+    const existing = findRowByVariation(productId, variationId);
+
+    if (existing) {
+      const i    = rowIndexOf(existing);
+      const $qty = existing.find('.quantity');
+      const cur  = parseFloat($qty.val()) || 0;
+      $qty.val(cur + SCAN_INCREMENT);
+      rowTotal(i);
+      flashRow(existing);
+      if (rowIsEmpty(scanRow)) scanRow.find('.product-code').val('').focus();
+      else focusLastScanBox();
+      return;
+    }
+
+    const targetRow = rowIsEmpty(scanRow) ? scanRow : appendAndGetRow();
+    const i = rowIndexOf(targetRow);
+
+    targetRow.find('.product-select').val(productId).trigger('change.select2');
+    targetRow.find('.variation-select')
+      .html(`<option value="${variationId}" selected>${sku}</option>`)
+      .prop('disabled', false)
+      .trigger('change');
+
+    // Price: prefer variation price from endpoint, else the product option's data-price.
+    let usePrice = price;
+    if (!usePrice) {
+      const opt = targetRow.find(`.product-select option[value="${productId}"]`);
+      usePrice = opt.data('price') || 0;
+    }
+    if (usePrice) $(`#price_${i}`).val(usePrice);
+
+    // Unit: pull from the product option's data-unit if present.
+    const optU = targetRow.find(`.product-select option[value="${productId}"]`);
+    const unit = optU.data('unit');
+    if (unit) $(`#unit_${i}`).val(String(unit)).trigger('change.select2');
+
+    $(`#qty_${i}`).val(SCAN_INCREMENT);
+    rowTotal(i);
+
+    targetRow.find('.product-code').val('');
+    openNextScanRow();
+  }
+
+  function handleScannedProduct(scanRow, product) {
+    const existing = findRowByVariation(product.id, null);
+
+    if (existing) {
+      const i    = rowIndexOf(existing);
+      const $qty = existing.find('.quantity');
+      const cur  = parseFloat($qty.val()) || 0;
+      $qty.val(cur + SCAN_INCREMENT);
+      rowTotal(i);
+      flashRow(existing);
+      if (rowIsEmpty(scanRow)) scanRow.find('.product-code').val('').focus();
+      else focusLastScanBox();
+      return;
+    }
+
+    const targetRow = rowIsEmpty(scanRow) ? scanRow : appendAndGetRow();
+    const i = rowIndexOf(targetRow);
+
+    targetRow.find('.product-select').val(product.id).trigger('change.select2');
+
+    const opt = targetRow.find(`.product-select option[value="${product.id}"]`);
+    if (opt.data('price')) $(`#price_${i}`).val(opt.data('price'));
+    if (opt.data('unit'))  $(`#unit_${i}`).val(String(opt.data('unit'))).trigger('change.select2');
+
+    loadVariations(targetRow, product.id);
+    $(`#qty_${i}`).val(SCAN_INCREMENT);
+    rowTotal(i);
+
+    targetRow.find('.product-code').val('');
+    openNextScanRow();
+  }
 
   function onProductChange(selectEl) {
     const row  = selectEl.closest('tr');
@@ -255,7 +396,7 @@
     const price = opt.getAttribute('data-price') || 0;
     const unit  = opt.getAttribute('data-unit')  || '';
     document.getElementById(`price_${i}`).value = price;
-    $(`#unit_${i}`).val(String(unit)).trigger('change.select2');   // ← fixed
+    $(`#unit_${i}`).val(String(unit)).trigger('change.select2');
     rowTotal(i);
   }
 

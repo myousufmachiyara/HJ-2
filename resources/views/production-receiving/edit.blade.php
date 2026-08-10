@@ -206,6 +206,8 @@
 </div>
 
 <script>
+  const SCAN_INCREMENT = 1;
+
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
@@ -220,38 +222,61 @@
       recalcSummary();
     });
 
-    // Barcode scan
-    $(document).on('blur', '.product-code', function () {
-      const row     = $(this).closest('tr');
-      const barcode = $(this).val().trim();
+    // 🔹 Hardware scanner Enter → intercept + treat as scan complete
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) {
+        e.preventDefault();
+        $(this).trigger('scan:submit');
+      }
+    });
+
+    // 🔹 Barcode scan handler (repeat-increments + auto-next-line)
+    //    Works on pre-loaded rows too — findRowByVariation reads the live DOM.
+    $(document).on('scan:submit', '.product-code', function () {
+      const $input  = $(this);
+      const row     = $input.closest('tr');
+      const barcode = $input.val().trim();
       if (!barcode) return;
 
       $.get('/get-product-by-code/' + encodeURIComponent(barcode), function (res) {
-        if (!res.success) {
-          alert(res.message || 'Product not found');
-          row.find('.product-code').val('').focus();
+        if (!res || !res.success) {
+          alert((res && res.message) || 'Product not found');
+          $input.val('').focus();
           return;
         }
+
         if (res.type === 'variation') {
           const v = res.variation;
-          row.find('.product-select').val(v.product_id).trigger('change');
-          loadVariations(row, v.product_id, v.id);
-          if (v.cmt_cost !== undefined) row.find('.manufacturing_cost').val(parseFloat(v.cmt_cost).toFixed(2));
-          setTimeout(() => row.find('.received-qty').focus(), 300);
+          handleScannedVariation(row, v.product_id, v.id, v.sku, v.cmt_cost);
+        } else if (res.type === 'product') {
+          handleScannedProduct(row, res.product);
         }
-        if (res.type === 'product') {
-          const p = res.product;
-          row.find('.product-select').val(p.id).trigger('change');
-          if (p.cmt_cost !== undefined) row.find('.manufacturing_cost').val(parseFloat(p.cmt_cost).toFixed(2));
-        }
-        recalcRow(row); recalcSummary();
       }).fail(() => alert('Error fetching product.'));
+    });
+
+    // Manual typing + tab-out: only if product not chosen yet
+    // (existing rows already have a product → their pre-rendered barcode won't reprocess).
+    $(document).on('blur', '.product-code', function () {
+      const barcode = $(this).val().trim();
+      if (barcode && !$(this).closest('tr').find('.product-select').val()) {
+        $(this).trigger('scan:submit');
+      }
     });
 
     // Qty / cost change
     $(document).on('input', '.received-qty, .manufacturing_cost', function () {
       recalcRow($(this).closest('tr'));
       recalcSummary();
+    });
+
+    // Enter on qty → advance to next scan box (no empty-row pile-up)
+    $(document).on('keypress', '.received-qty', function (e) {
+      if (e.which === 13) {
+        e.preventDefault();
+        const $last = $('#receivingBody tr').last();
+        if (!rowIsEmpty($last)) addRow();
+        focusLastScanBox();
+      }
     });
 
     // Remove row
@@ -268,6 +293,115 @@
     // Init totals on load
     recalcSummary();
   });
+
+  // ── Duplicate-detection helpers ──────────────────────────────────────
+  function findRowByVariation(productId, variationId) {
+    let match = null;
+    $('#receivingBody tr').each(function () {
+      const $r  = $(this);
+      const pid = $r.find('.product-select').val();
+      const vid = $r.find('.variation-select').val() || '';
+      const wantV = (variationId ?? '') + '';
+      if (String(pid) === String(productId) && String(vid) === wantV) {
+        match = $r;
+        return false;
+      }
+    });
+    return match;
+  }
+
+  function rowIsEmpty($row) {
+    return !$row.find('.product-select').val();
+  }
+
+  function flashRow($row) {
+    $row.addClass('table-success');
+    setTimeout(() => $row.removeClass('table-success'), 600);
+  }
+
+  function focusLastScanBox() {
+    $('#receivingBody tr').last().find('.product-code').focus();
+  }
+
+  function appendAndGetRow() {
+    addRow();
+    return $('#receivingBody tr').last();
+  }
+
+  function openNextScanRow() {
+    const $last = $('#receivingBody tr').last();
+    const $next = rowIsEmpty($last) ? $last : appendAndGetRow();
+    $next.find('.product-code').focus();
+  }
+
+  // ── Scan handlers ────────────────────────────────────────────────────
+  function handleScannedVariation(scanRow, productId, variationId, sku, cmtCost) {
+    const existing = findRowByVariation(productId, variationId);
+
+    if (existing) {
+      const $qty = existing.find('.received-qty');
+      const cur  = parseFloat($qty.val()) || 0;
+      $qty.val(cur + SCAN_INCREMENT);
+      recalcRow(existing);
+      recalcSummary();
+      flashRow(existing);
+      if (rowIsEmpty(scanRow)) scanRow.find('.product-code').val('').focus();
+      else focusLastScanBox();
+      return;
+    }
+
+    const targetRow = rowIsEmpty(scanRow) ? scanRow : appendAndGetRow();
+
+    targetRow.find('.product-select').val(productId).trigger('change.select2');
+    loadVariations(targetRow, productId, variationId);
+
+    let useCost = cmtCost;
+    if (useCost === undefined || useCost === null) {
+      useCost = targetRow.find(`.product-select option[value="${productId}"]`).data('cmt-cost') || 0;
+    }
+    targetRow.find('.manufacturing_cost').val(parseFloat(useCost).toFixed(2));
+
+    targetRow.find('.received-qty').val(SCAN_INCREMENT);
+    recalcRow(targetRow);
+    recalcSummary();
+
+    targetRow.find('.product-code').val('');
+    openNextScanRow();
+  }
+
+  function handleScannedProduct(scanRow, product) {
+    const existing = findRowByVariation(product.id, null);
+
+    if (existing) {
+      const $qty = existing.find('.received-qty');
+      const cur  = parseFloat($qty.val()) || 0;
+      $qty.val(cur + SCAN_INCREMENT);
+      recalcRow(existing);
+      recalcSummary();
+      flashRow(existing);
+      if (rowIsEmpty(scanRow)) scanRow.find('.product-code').val('').focus();
+      else focusLastScanBox();
+      return;
+    }
+
+    const targetRow = rowIsEmpty(scanRow) ? scanRow : appendAndGetRow();
+
+    targetRow.find('.product-select').val(product.id).trigger('change.select2');
+    loadVariations(targetRow, product.id);
+
+    let useCost = product.cmt_cost;
+    if (useCost === undefined || useCost === null) {
+      useCost = targetRow.find(`.product-select option[value="${product.id}"]`).data('cmt-cost') || 0;
+    }
+    targetRow.find('.manufacturing_cost').val(parseFloat(useCost).toFixed(2));
+
+    targetRow.find('.received-qty').val(SCAN_INCREMENT);
+    recalcRow(targetRow);
+    recalcSummary();
+
+    targetRow.find('.product-code').val('');
+    openNextScanRow();
+  }
 
   function addRow() {
     const count = $('#receivingBody tr').length;
