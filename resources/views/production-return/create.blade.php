@@ -180,7 +180,107 @@
       row.find('.price').val(rate);
       rowTotal(row.find('.price')[0]);
     });
+
+    // 🔹 Hardware scanner Enter → intercept + treat as scan complete
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) {
+        e.preventDefault();
+        $(this).trigger('scan:submit');
+      }
+    });
+
+    // 🔹 Barcode scan → ALWAYS add a new line (no increment, no dup-check)
+    $(document).on('scan:submit', '.product-code', function () {
+      const $input  = $(this);
+      const row     = $input.closest('tr');
+      const barcode = $input.val().trim();
+      if (!barcode) return;
+
+      $.get('/get-product-by-code/' + encodeURIComponent(barcode), function (res) {
+        if (!res || !res.success) {
+          alert((res && res.message) || 'Product not found');
+          $input.val('').focus();
+          return;
+        }
+
+        if (res.type === 'variation') {
+          fillScannedRow(row, res.variation.product_id, res.variation.id);
+        } else if (res.type === 'product') {
+          fillScannedRow(row, res.product.id, null);
+        }
+      }).fail(() => alert('Error fetching product.'));
+    });
+
+    // Manual typing + tab-out: only if product not chosen yet
+    $(document).on('blur', '.product-code', function () {
+      const barcode = $(this).val().trim();
+      if (barcode && !$(this).closest('tr').find('.product-select').val()) {
+        $(this).trigger('scan:submit');
+      }
+    });
   });
+
+  function rowIsEmpty($row) {
+    return !$row.find('.product-select').val();
+  }
+
+  function appendAndGetRow() {
+    addReturnRow();
+    return $('#ReturnTableBody tr').last();
+  }
+
+  // Every scan fills a row (the current empty one, or a fresh one) then opens a
+  // new empty row and focuses it. No qty incrementing, no duplicate detection.
+  function fillScannedRow(scanRow, productId, variationId) {
+    const targetRow = rowIsEmpty(scanRow) ? scanRow : appendAndGetRow();
+
+    const $ps = targetRow.find('.product-select');
+    $ps.val(productId).trigger('change.select2');
+
+    // Mirror onReturnItemChange: set unit, clear the scan box on this row.
+    const $opt   = $ps.find(`option[value="${productId}"]`);
+    const unitId = $opt.data('unit');
+    if (unitId) targetRow.find('.unit-select').val(String(unitId)).trigger('change.select2');
+    targetRow.find('.product-code').val('');
+
+    // Load variations (preselect scanned one), then load productions and open
+    // the production picker so the user chooses which production this is against.
+    loadVariationsThen(targetRow, productId, variationId, function () {
+      loadProductions(targetRow, productId);
+      setTimeout(() => targetRow.find('.production-select').select2('open'), 350);
+    });
+
+    targetRow.find('.quantity').val(1);
+    rowTotal(targetRow.find('.quantity')[0]);
+
+    // Auto-next-line: ensure a fresh empty row exists and focus its scan box.
+    const $last = $('#ReturnTableBody tr').last();
+    const $next = rowIsEmpty($last) ? $last : appendAndGetRow();
+    $next.find('.product-code').focus();
+  }
+
+  // variation loader that preselects + callbacks (scan-aware)
+  function loadVariationsThen(row, productId, preselectVarId, done) {
+    const $var = row.find('.variation-select');
+    $var.html('<option value="">Loading...</option>').prop('disabled', true);
+    $.get(`/product/${productId}/variations`, function (data) {
+      const variations = data.variation || [];
+      if (variations.length) {
+        let opts = '<option value="">Select Variation</option>';
+        variations.forEach(v => { opts += `<option value="${v.id}">${v.sku}</option>`; });
+        $var.html(opts).prop('disabled', false);
+      } else {
+        $var.html('<option value="">No Variations</option>').prop('disabled', true);
+      }
+      if ($var.hasClass('select2-hidden-accessible')) $var.select2('destroy');
+      $var.select2({ width: '100%', dropdownAutoWidth: true });
+      if (preselectVarId) $var.val(String(preselectVarId)).trigger('change');
+      if (typeof done === 'function') done();
+    }).fail(() => {
+      $var.html('<option value="">Error</option>').prop('disabled', true);
+      if (typeof done === 'function') done();
+    });
+  }
 
   function addReturnRow() {
     const productOpts = products.map(p =>
