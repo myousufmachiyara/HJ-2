@@ -32,7 +32,8 @@ use App\Http\Controllers\{
     ProductionReturnController,
     ProductionWastageController,
     PosController,
-    ShopifyStoreController
+    ShopifyStoreController,
+    ItemsImportController
 };
 
 Auth::routes();
@@ -230,4 +231,10 @@ Route::middleware(['auth'])->group(function () {
         dd($response->json()); // Remove this line after getting token
     });
 
+    // ── Bulk Excel import (items only) ─────────────────────────────────
+    Route::post('/purchase-return/import-items', [ItemsImportController::class, 'purchaseReturn'])->middleware('check.permission:purchase_return.create')->name('purchase_return.import_items');
+    Route::post('/sale-invoices/import-items', [ItemsImportController::class, 'saleInvoice'])->middleware('check.permission:sale_invoices.create')->name('sale_invoices.import_items');
+    Route::post('/sale-return/import-items', [ItemsImportController::class, 'saleReturn'])->middleware('check.permission:sale_return.create')->name('sale_return.import_items');
+    Route::post('/stock-transfer/import-items', [ItemsImportController::class, 'stockTransfer'])->middleware('check.permission:stock_transfer.create')->name('stock_transfer.import_items');
+ 
 });
