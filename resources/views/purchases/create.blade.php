@@ -260,7 +260,11 @@
         const $productSelect   = $newRow.find('.product-select');
         const $variationSelect = $newRow.find('.variation-select');
 
-        if (res.type === 'variation') {
+        // Check for the actual data instead of trusting res.type's exact
+        // string — this survives any casing/whitespace mismatch in what
+        // the endpoint returns, and matches how the manual blur-lookup
+        // handler below behaves.
+        if (res.variation) {
           const v = res.variation;
 
           // Prevent the delegated change handler from re-running loadVariations()
@@ -276,7 +280,7 @@
           $newRow.find('.product-code').val(v.barcode);
           $newRow.find('input[name*="[barcode]"]').val(v.barcode);
 
-        } else if (res.type === 'product') {
+        } else if (res.product) {
           const p = res.product;
 
           $newRow.data('skipAutoLoad', true);
@@ -287,7 +291,12 @@
 
           loadVariations($newRow, p.id);
         } else {
-          failures.push(`Barcode ${barcode}: unrecognized response type`);
+          // Nothing usable came back — log the raw response so the real
+          // shape is visible, and DON'T fill in qty/price/unit for a row
+          // that has no item attached to it.
+          console.warn('Unexpected response for barcode', barcode, res);
+          failures.push(`Barcode ${barcode}: unrecognized response — check console`);
+          return;
         }
 
         $(`#unit${rowIdx}`).val(String(unitId)).trigger('change'); // plain 'change'
