@@ -264,8 +264,21 @@
         // string — this survives any casing/whitespace mismatch in what
         // the endpoint returns, and matches how the manual blur-lookup
         // handler below behaves.
+        // The dropdown's <option> list was built from the page's JS `products`
+        // array at load time. If the resolved product isn't in that list
+        // (added since page load, filtered out, etc.), .val() silently does
+        // nothing — no error, dropdown just stays on "Select Item". So we
+        // inject the option first if it's missing.
+        function ensureOption($select, id, label) {
+          if ($select.find(`option[value="${id}"]`).length === 0) {
+            $select.append(`<option value="${id}">${label}</option>`);
+          }
+        }
+
         if (res.variation) {
           const v = res.variation;
+
+          ensureOption($productSelect, v.product_id, v.sku || v.barcode || ('Product #' + v.product_id));
 
           // Prevent the delegated change handler from re-running loadVariations()
           // and wiping out the variation option we set manually below.
@@ -283,6 +296,8 @@
         } else if (res.product) {
           const p = res.product;
 
+          ensureOption($productSelect, p.id, p.name || p.barcode || ('Product #' + p.id));
+
           $newRow.data('skipAutoLoad', true);
           $productSelect.val(p.id).trigger('change'); // plain 'change'
 
@@ -297,6 +312,13 @@
           console.warn('Unexpected response for barcode', barcode, res);
           failures.push(`Barcode ${barcode}: unrecognized response — check console`);
           return;
+        }
+
+        // Sanity check — should never fire now that ensureOption() runs above,
+        // but if it does, it means something other than a missing option is
+        // blocking the select (e.g. a type mismatch on the id).
+        if (!$productSelect.val()) {
+          console.warn('Product select still empty after import for barcode', barcode, res);
         }
 
         $(`#unit${rowIdx}`).val(String(unitId)).trigger('change'); // plain 'change'
