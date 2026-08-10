@@ -277,13 +277,23 @@
 
         if (res.variation) {
           const v = res.variation;
+          console.log('RAW variation object from backend:', JSON.stringify(v));
 
-          ensureOption($productSelect, v.product_id, v.sku || v.barcode || ('Product #' + v.product_id));
+          // Guessing field names from the blade code was wrong for at least
+          // one row — try the common variants instead of assuming product_id.
+          const productId = v.product_id ?? v.productId ?? (v.product && v.product.id) ?? null;
 
-          // Prevent the delegated change handler from re-running loadVariations()
-          // and wiping out the variation option we set manually below.
-          $newRow.data('skipAutoLoad', true);
-          $productSelect.val(v.product_id).trigger('change'); // plain 'change' → updates Select2 label
+          if (productId === null) {
+            console.warn('Could not find a product id on this variation object — see the RAW log above.', v);
+            failures.push(`Barcode ${barcode}: variation response has no product id (check console)`);
+          } else {
+            ensureOption($productSelect, productId, v.sku || v.barcode || ('Product #' + productId));
+
+            // Prevent the delegated change handler from re-running loadVariations()
+            // and wiping out the variation option we set manually below.
+            $newRow.data('skipAutoLoad', true);
+            $productSelect.val(productId).trigger('change'); // plain 'change' → updates Select2 label
+          }
 
           $variationSelect
             .html(`<option value="${v.id}" selected>${v.sku}</option>`)
@@ -295,16 +305,25 @@
 
         } else if (res.product) {
           const p = res.product;
+          console.log('RAW product object from backend:', JSON.stringify(p));
 
-          ensureOption($productSelect, p.id, p.name || p.barcode || ('Product #' + p.id));
+          const productId = p.id ?? p.product_id ?? null;
 
-          $newRow.data('skipAutoLoad', true);
-          $productSelect.val(p.id).trigger('change'); // plain 'change'
+          if (productId === null) {
+            console.warn('Could not find an id on this product object — see the RAW log above.', p);
+            failures.push(`Barcode ${barcode}: product response has no id (check console)`);
+          } else {
+            ensureOption($productSelect, productId, p.name || p.barcode || ('Product #' + productId));
+
+            $newRow.data('skipAutoLoad', true);
+            $productSelect.val(productId).trigger('change'); // plain 'change'
+
+            loadVariations($newRow, productId);
+          }
 
           $newRow.find('.product-code').val(p.barcode);
           $newRow.find('input[name*="[barcode]"]').val(p.barcode);
 
-          loadVariations($newRow, p.id);
         } else {
           // Nothing usable came back — log the raw response so the real
           // shape is visible, and DON'T fill in qty/price/unit for a row
