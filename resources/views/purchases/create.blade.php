@@ -245,15 +245,8 @@
     if (!barcode) { importRowsSequentially(rows, i + 1, failures); return; }
 
     addNewRow();
-    const $newRow = $('#Purchase1Table tbody tr').last();
+    const $newRow = $('#Purchase1Table tr').last();
     const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
-
-    // --- TEMP DIAGNOSTICS: remove once this is confirmed fixed ---
-    console.log('DEBUG $newRow count:', $newRow.length);
-    console.log('DEBUG $newRow outerHTML:', $newRow[0] ? $newRow[0].outerHTML : '(no row element found)');
-    console.log('DEBUG product-select found in this row:', $newRow.find('.product-select').length);
-    console.log('DEBUG variation-select found in this row:', $newRow.find('.variation-select').length);
-    // --- end temp diagnostics ---
 
     $.ajax({
       url: '/get-product-by-code/' + encodeURIComponent(barcode),
@@ -297,10 +290,8 @@
 
         if (res.variation) {
           const v = res.variation;
-          console.log('RAW variation object from backend:', JSON.stringify(v));
 
-          // Guessing field names from the blade code was wrong for at least
-          // one row — try the common variants instead of assuming product_id.
+          // Backend uses product_id, but fall back to common variants just in case.
           const productId = v.product_id ?? v.productId ?? (v.product && v.product.id) ?? null;
 
           if (productId === null) {
@@ -309,24 +300,10 @@
           } else {
             ensureOption($productSelect, productId, v.sku || v.barcode || ('Product #' + productId));
 
-            // --- TEMP DIAGNOSTICS: remove once this is confirmed fixed ---
-            console.log('DEBUG productId to select:', productId, typeof productId);
-            console.log('DEBUG matching <option> count in this row:',
-              $productSelect.find(`option[value="${productId}"]`).length);
-            console.log('DEBUG all option values in this row:',
-              $productSelect.find('option').map(function () { return this.value; }).get());
-            console.log('DEBUG native select value BEFORE set:', $productSelect[0].value);
-            // --- end temp diagnostics header ---
-
             // Prevent the delegated change handler from re-running loadVariations()
             // and wiping out the variation option we set manually below.
             $newRow.data('skipAutoLoad', true);
             $productSelect.val(productId).trigger('change'); // plain 'change' → updates Select2 label
-
-            // --- TEMP DIAGNOSTICS continued ---
-            console.log('DEBUG native select value AFTER set:', $productSelect[0].value);
-            console.log('DEBUG jQuery .val() AFTER set:', $productSelect.val());
-            // --- end temp diagnostics ---
           }
 
           $variationSelect
@@ -339,8 +316,6 @@
 
         } else if (res.product) {
           const p = res.product;
-          console.log('RAW product object from backend:', JSON.stringify(p));
-
           const productId = p.id ?? p.product_id ?? null;
 
           if (productId === null) {
@@ -495,7 +470,7 @@
 
         if (qty !== '') {
           addNewRow();
-          const $newRow = $('#Purchase1Table tbody tr').last();
+          const $newRow = $('#Purchase1Table tr').last();
           $newRow.find('.product-code').focus();
         } else {
           alert("Please enter quantity first.");
