@@ -58,6 +58,18 @@
             </div>
           </div>
 
+          <div class="d-flex justify-content-end mb-2">
+            <div class="btn-group">
+              <button type="button" class="btn btn-outline-secondary btn-sm" onclick="downloadImportTemplate()">
+                <i class="fas fa-file-download"></i> Download Import Template
+              </button>
+              <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('excelImportInput').click()">
+                <i class="fas fa-file-upload"></i> Import from Excel
+              </button>
+              <input type="file" id="excelImportInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleServerImport(event)">
+            </div>
+          </div>
+
           {{-- Items --}}
           <div class="table-responsive mb-3">
             <table class="table table-bordered table-sm" id="saleTable">
@@ -205,6 +217,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <script>
   var products = @json($products);
   var rowIdx   = 2;
@@ -216,7 +229,15 @@
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
 
     $(document).on('change', '.product-select', function () {
-      const row       = $(this).closest('tr');
+      const row = $(this).closest('tr');
+
+      // Skip auto-load if this row was just populated by the Excel import,
+      // since the import already set the variation manually.
+      if (row.data('skipAutoLoad')) {
+        row.removeData('skipAutoLoad');
+        return;
+      }
+
       const productId = $(this).val();
       if (productId) loadVariations(row, productId);
     });
@@ -502,6 +523,106 @@
       if ($var.hasClass('select2-hidden-accessible')) $var.select2('destroy');
       $var.select2({ width: '100%', dropdownAutoWidth: true });
       if (preselectId) $var.val(String(preselectId)).trigger('change');
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Bulk Excel import (server-side, via Maatwebsite — see ItemsImportController)
+  // ───────────────────────────────────────────────────────────────────────
+
+  function downloadImportTemplate() {
+    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit ID', 'Price', 'Discount %'];
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.writeFile(wb, 'sale_invoice_import_template.xlsx');
+  }
+
+  // Ensure the resolved product has a selectable <option> in this row's
+  // dropdown — the dropdown's options come from the page's `products`
+  // array at load time, so a product added/edited since then, or filtered
+  // out of that list, won't have one unless we add it here.
+  function ensureOption($select, id, label) {
+    if ($select.find(`option[value="${id}"]`).length === 0) {
+      $select.append(`<option value="${id}">${label}</option>`);
+    }
+  }
+
+  function importSaleInvoiceItem(item) {
+    const existing = findRowByVariation(item.product_id, item.variation_id);
+    const row = existing ?? (rowIsEmpty($('#SaleTableBody tr').last())
+      ? $('#SaleTableBody tr').last()
+      : appendAndGetRow());
+    const i = rowIndexOf(row);
+
+    row.data('skipAutoLoad', true);
+
+    const $productSelect = row.find('.product-select');
+    ensureOption($productSelect, item.product_id, item.sku || item.barcode || ('Product #' + item.product_id));
+    $productSelect.val(item.product_id).trigger('change.select2');
+
+    if (item.variation_id) {
+      row.find('.variation-select')
+        .html(`<option value="${item.variation_id}" selected>${item.sku ?? ''}</option>`)
+        .prop('disabled', false)
+        .trigger('change');
+    } else {
+      loadVariations(row, item.product_id);
+    }
+
+    // Set these AFTER the select trigger — onProductChange's inline onchange
+    // handler runs on that trigger and would otherwise overwrite them with
+    // the option's default data-price/data-unit.
+    if (item.unit_id !== null && item.unit_id !== undefined) {
+      $(`#unit_${i}`).val(String(item.unit_id)).trigger('change.select2');
+    }
+    if (item.price !== null && item.price !== undefined) {
+      $(`#price_${i}`).val(item.price);
+    }
+    if (item.discount !== null && item.discount !== undefined) {
+      $(`#disc_${i}`).val(item.discount);
+    }
+
+    const priorQty = existing ? (parseFloat(row.find('.quantity').val()) || 0) : 0;
+    $(`#qty_${i}`).val(priorQty + (parseFloat(item.quantity) || 0));
+
+    row.find('.product-code').val(item.barcode || '');
+
+    rowTotal(i);
+  }
+
+  function handleServerImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('_token', $('meta[name="csrf-token"]').attr('content'));
+
+    $.ajax({
+      url: '{{ route("sale_invoices.import_items") }}',
+      method: 'POST',
+      data: formData,
+      processData: false,
+      contentType: false,
+      success: function (res) {
+        if (!res || !res.success) {
+          alert((res && res.message) || 'Import failed.');
+          return;
+        }
+        (res.items || []).forEach(importSaleInvoiceItem);
+        if ((res.errors || []).length) {
+          alert('Import finished with issues:\n' + res.errors.join('\n'));
+        }
+      },
+      error: function (xhr) {
+        console.error(xhr.responseText);
+        alert('Import failed: ' + (xhr.responseJSON?.message || xhr.statusText));
+      },
+      complete: function () {
+        event.target.value = '';
+      }
     });
   }
 </script>
