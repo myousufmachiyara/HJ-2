@@ -248,6 +248,13 @@
     const $newRow = $('#Purchase1Table tbody tr').last();
     const rowIdx  = index - 1; // id suffix used by addNewRow() for this row
 
+    // --- TEMP DIAGNOSTICS: remove once this is confirmed fixed ---
+    console.log('DEBUG $newRow count:', $newRow.length);
+    console.log('DEBUG $newRow outerHTML:', $newRow[0] ? $newRow[0].outerHTML : '(no row element found)');
+    console.log('DEBUG product-select found in this row:', $newRow.find('.product-select').length);
+    console.log('DEBUG variation-select found in this row:', $newRow.find('.variation-select').length);
+    // --- end temp diagnostics ---
+
     $.ajax({
       url: '/get-product-by-code/' + encodeURIComponent(barcode),
       method: 'GET',
@@ -259,6 +266,19 @@
 
         const $productSelect   = $newRow.find('.product-select');
         const $variationSelect = $newRow.find('.variation-select');
+
+        // Guard: if this row's selects weren't found, report it and move on
+        // to the next row instead of crashing the whole batch.
+        if ($productSelect.length === 0 || $variationSelect.length === 0) {
+          console.error(
+            'Row markup not found for barcode', barcode,
+            '— productSelect count:', $productSelect.length,
+            'variationSelect count:', $variationSelect.length,
+            'row outerHTML:', $newRow[0] ? $newRow[0].outerHTML : '(no row element)'
+          );
+          failures.push(`Barcode ${barcode}: internal error — row markup not found (check console)`);
+          return;
+        }
 
         // Check for the actual data instead of trusting res.type's exact
         // string — this survives any casing/whitespace mismatch in what
