@@ -4,13 +4,26 @@
     <title>Print Barcodes</title>
     <style>
         /* ────────────────────────────────────────────────────────────
-           THERMAL LABEL SIZE — change these two values to match your
-           label stock, then reload/print. Common sizes: 50x25, 50x30,
-           40x30, 58x40 (all in mm). Nothing else needs to change.
+           THERMAL LABEL SIZE — change these two values to match the
+           EXACT stock size configured in your Zebra driver (Control
+           Panel → Devices & Printers → Zebra GC420t → Printing
+           Preferences → Stock/Media size). They must match exactly or
+           labels will misalign / print blank / split across two labels.
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 50mm 30mm;   /* ← label width x height */
-            margin: 0;         /* thermal printers have no page margins */
+            size: 50mm 30mm;   /* ← label width x height — CONFIRM this matches your roll */
+            margin: 0;
+        }
+
+        /* ────────────────────────────────────────────────────────────
+           ROTATION — your printed labels came out upside-down because
+           of how the roll is fed. This flips the content 180° to
+           compensate. If you later reload the roll the other way round
+           and labels come out upside-down AGAIN, just change this to
+           rotate(0deg) (or delete the transform line).
+           ──────────────────────────────────────────────────────────── */
+        .barcode-label {
+            transform: rotate(180deg);
         }
 
         * {
@@ -26,9 +39,6 @@
             font-family: Arial, sans-serif;
         }
 
-        /* Each label is its own printed page — exact match to @page size
-           above. This is what makes ONE sticker come out per label, instead
-           of the browser trying to fit a grid onto A4. */
         .barcode-label {
             width: 50mm;
             height: 30mm;
@@ -40,8 +50,8 @@
             align-items: center;
             text-align: center;
             overflow: hidden;
-            page-break-after: always;   /* one label = one physical print */
-            break-after: page;          /* modern browsers */
+            page-break-after: always;
+            break-after: page;
         }
 
         .barcode-label:last-child {
@@ -85,19 +95,27 @@
         }
 
         .barcode-label img {
-            width: 44mm;      /* leaves ~2mm margin either side of a 50mm label */
+            width: 44mm;
             max-width: 100%;
-            height: 10mm;     /* slightly shorter than the earlier version to
-                                  leave room for brand + compare-price lines */
+            height: 10mm;
             object-fit: contain;
             margin: 0.5mm 0;
         }
 
-        /* On-screen only: lets you preview labels stacked before printing,
-           since @page forces one-per-page only when actually printing. */
         .no-print {
             text-align: center;
             margin: 16px 0;
+        }
+
+        .no-print .reminder {
+            max-width: 420px;
+            margin: 0 auto 12px;
+            padding: 10px 14px;
+            background: #fff3cd;
+            border: 1px solid #ffe08a;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: left;
         }
 
         @media screen {
@@ -109,6 +127,9 @@
                 border: 1px solid #999;
                 margin: 6px auto;
                 box-shadow: 0 1px 3px rgba(0,0,0,.2);
+                /* Preview on screen right-side-up so it's easy to check the
+                   content itself; only the actual print output is rotated. */
+                transform: none;
             }
         }
 
@@ -123,6 +144,15 @@
     </style>
 </head>
 <body>
+
+<div class="no-print">
+    <div class="reminder">
+        <strong>Before printing:</strong> click "More settings" in the print
+        dialog and <u>uncheck "Headers and footers"</u> — otherwise the browser
+        stamps the page URL and date/time onto every label.
+    </div>
+    <button onclick="window.print()">Print Labels</button>
+</div>
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
@@ -141,10 +171,6 @@
         <span class="price">Rs. {{ $barcode['price'] }}</span>
     </div>
 @endforeach
-
-<div class="no-print">
-    <button onclick="window.print()">Print Labels</button>
-</div>
 
 </body>
 </html>
