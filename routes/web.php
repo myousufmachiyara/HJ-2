@@ -52,6 +52,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/products/details',                     [ProductController::class, 'details'])->name('products.receiving');
     Route::get('/products/barcode-selection',           [ProductController::class, 'barcodeSelection'])->name('products.barcode.selection');
     Route::post('/products/generate-multiple-barcodes', [ProductController::class, 'generateMultipleBarcodes'])->name('products.generateBarcodes');
+    Route::post('/products/generate-zpl-labels',         [ProductController::class, 'generateZplLabels'])->name('products.generateZplLabels');
     Route::get('/get-product-by-code/{barcode}',        [ProductController::class, 'getByBarcode'])->name('product.byBarcode');
     Route::get('/product/{product}/variations',         [ProductController::class, 'getVariations'])->name('product.variations');
     Route::get('/product/{product}/variations2',        [ProductController::class, 'getVariations2'])->name('product.variations2');
