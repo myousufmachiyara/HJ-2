@@ -4,14 +4,16 @@
     <title>Print Barcodes</title>
     <style>
         /* ────────────────────────────────────────────────────────────
-           THERMAL LABEL SIZE — change these two values to match the
-           EXACT stock size configured in your Zebra driver (Control
-           Panel → Devices & Printers → Zebra GC420t → Printing
-           Preferences → Stock/Media size). They must match exactly or
-           labels will misalign / print blank / split across two labels.
+           THERMAL LABEL SIZE — measured from the actual roll with a tape
+           measure: ~1.5in x 1in (38mm x 25mm). Must match the EXACT stock
+           size configured in your printer driver (Control Panel → Devices
+           & Printers → your thermal printer → Printing Preferences →
+           Stock/Media size) or labels will misalign / split across labels.
+           If your tape reading was off, correct both values here AND the
+           .barcode-label width/height below (they must always match).
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 50mm 30mm;   /* ← label width x height — CONFIRM this matches your roll */
+            size: 38mm 25mm;   /* ← label width x height */
             margin: 0;
         }
 
@@ -40,9 +42,9 @@
         }
 
         .barcode-label {
-            width: 50mm;
-            height: 30mm;
-            padding: 1mm 2mm;
+            width: 38mm;
+            height: 25mm;
+            padding: 0.5mm 1.5mm;
             margin: 0;
             display: flex;
             flex-direction: column;
@@ -70,15 +72,15 @@
         }
 
         .barcode-label strong {
-            font-size: 8px;
-        }
-
-        .barcode-label small {
             font-size: 6.5px;
         }
 
+        .barcode-label small {
+            font-size: 5.5px;
+        }
+
         .barcode-label .brand {
-            font-size: 6px;
+            font-size: 5px;
             text-transform: uppercase;
             color: #555;
         }
@@ -86,20 +88,23 @@
         .barcode-label .compare-price {
             text-decoration: line-through;
             color: #888;
-            font-size: 6.5px;
+            font-size: 5.5px;
         }
 
         .barcode-label .price {
-            font-size: 9px;
+            font-size: 7.5px;
             font-weight: bold;
         }
 
+        /* Rescaled for the 38x25mm label — was 44mm x 10mm on the old
+           50x30mm size. Keep this comfortably inside width minus padding
+           (38mm - 2×1.5mm = 35mm) so it can't get clipped by overflow:hidden. */
         .barcode-label img {
-            width: 44mm;
+            width: 33mm;
             max-width: 100%;
-            height: 10mm;
+            height: 7mm;
             object-fit: contain;
-            margin: 0.5mm 0;
+            margin: 0.3mm 0;
         }
 
         .no-print {
