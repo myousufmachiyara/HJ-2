@@ -4,11 +4,10 @@
     <title>Print Barcodes</title>
     <style>
         /* ────────────────────────────────────────────────────────────
-           THERMAL LABEL SIZE — corrected measurement: 38mm x 26mm. Must
-           match the EXACT stock size configured in your printer driver
-           (Control Panel → Devices & Printers → your thermal printer →
-           Printing Preferences → Stock/Media size) or labels will
-           misalign / split across labels.
+           THERMAL LABEL SIZE — must match the EXACT stock size configured
+           in your printer driver (Control Panel → Devices & Printers →
+           your thermal printer → Printing Preferences → Stock/Media size)
+           or labels will misalign / split across labels.
            ──────────────────────────────────────────────────────────── */
         @page {
             size: 4.9cm 2.4cm;   /* ← label width x height */
@@ -16,10 +15,10 @@
         }
 
         /* No CSS rotation — the printer driver's own orientation setting
-           now feeds the roll correctly, so the content prints right-way-up
-           and horizontal without any transform here. If that driver
-           setting ever changes and labels come out rotated again, that's
-           the place to fix it, not here. */
+           feeds the roll correctly, so the content prints right-way-up
+           and horizontal without any transform here. If labels come out
+           rotated, that's a driver-default setting to fix, not this file
+           — see the reply for where that default actually lives. */
 
         * {
             box-sizing: border-box;
@@ -54,18 +53,26 @@
             break-after: auto;
         }
 
-        /* Font sizes computed against the label's real vertical budget
-           (26mm - 2×0.3mm padding = 25.4mm usable). Every stacked element
-           below, at these sizes including line-height and the barcode
-           image, adds up to ~21.4mm — comfortable headroom instead of
-           being crammed edge-to-edge, and noticeably bigger/easier to read
-           than the original pass without overflowing and getting silently
-           clipped by `overflow: hidden`. */
+        /* Font sizes computed against the label's vertical budget. Every
+           stacked element below, at these sizes including line-height and
+           the barcode image, fits with headroom instead of being crammed
+           edge-to-edge or overflowing and getting silently clipped by
+           `overflow: hidden`. */
         .barcode-label strong,
         .barcode-label small {
             font-weight: 600;
             display: block;
             width: 100%;
+            /* Flex items default to `min-width: auto`, which means the
+               browser will NOT let this item shrink below the width its
+               unbroken text needs — even though width:100% and
+               overflow:hidden are set. That's what let a long product
+               name push past the label's edge instead of truncating: the
+               box itself was silently growing to fit the text before
+               overflow/ellipsis ever got a chance to act. min-width: 0
+               overrides that default and makes the 100% width, nowrap,
+               overflow-hidden, ellipsis combo actually clip as intended. */
+            min-width: 0;
             line-height: 1.15;
             white-space: nowrap;
             overflow: hidden;
@@ -99,14 +106,14 @@
             margin-top: 0.3mm;
         }
 
-        /* Content area is 35.8mm wide (38mm - 2×1.1mm padding). The image
-           is deliberately narrower than that (31mm, centered by the flex
-           layout) so it keeps a genuine ~2.4mm QUIET ZONE on each side —
-           the blank margin a scanner uses to detect where the bars
-           start/stop. Fixed mm width on purpose (not a %) — a percentage
-           here resolves against the flex column's content box rather than
-           a predictable physical size, which would quietly erode the
-           quiet zone the moment padding/layout changes. */
+        /* The image is deliberately narrower than the label's content
+           width (centered by the flex layout) so it keeps a genuine
+           QUIET ZONE on each side — the blank margin a scanner uses to
+           detect where the bars start/stop. Fixed mm width on purpose
+           (not a %) — a percentage here resolves against the flex
+           column's content box rather than a predictable physical size,
+           which would quietly erode the quiet zone the moment
+           padding/layout changes. */
         .barcode-label img {
             width: 31mm;
             max-width: 100%;
