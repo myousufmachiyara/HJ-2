@@ -13,7 +13,7 @@
            .barcode-label width/height below (they must always match).
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 38mm 26mm;   /* ← label width x height */
+            size: 50mm 35mm;   /* ← label width x height */
             margin: 0;
         }
 
@@ -38,8 +38,8 @@
         }
 
         .barcode-label {
-            width: 38mm;
-            height: 26mm;
+            width: 50mm;
+            height: 35mm;
             padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
@@ -73,8 +73,8 @@
         }
 
         .barcode-label strong {
-            font-size: 14px;
-            font-weight: 900;
+            font-size: 12px;
+            font-weight: 800;
         }
 
         .barcode-label small {
