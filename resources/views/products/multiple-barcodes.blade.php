@@ -18,6 +18,9 @@
             margin: 0;
         }
 
+        .barcode-label {
+            transform: rotate(90deg);
+        }
         /* No CSS rotation — the printer driver's own orientation setting
            feeds the roll correctly, so the content prints right-way-up
            and horizontal without any transform here. If labels come out
