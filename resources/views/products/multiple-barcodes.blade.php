@@ -96,13 +96,17 @@
             font-weight: bold;
         }
 
-        /* Rescaled for the 38x25mm label — was 44mm x 10mm on the old
-           50x30mm size. Keep this comfortably inside width minus padding
-           (38mm - 2×1.5mm = 35mm) so it can't get clipped by overflow:hidden. */
+        /* Rescaled for the 38x25mm label. Content area is 35mm wide
+           (38mm - 2×1.5mm padding); the image is deliberately narrower
+           than that (30mm, centered by the flex layout) so it keeps a
+           genuine ~2.5mm QUIET ZONE on each side — the blank margin a
+           scanner uses to detect where the bars start/stop. The earlier
+           33mm width left under 1mm total, which is a common real-world
+           cause of unreliable scans, separate from any rotation issue. */
         .barcode-label img {
-            width: 33mm;
+            width: 30mm;
             max-width: 100%;
-            height: 7mm;
+            height: 8mm;
             object-fit: contain;
             margin: 0.3mm 0;
         }
