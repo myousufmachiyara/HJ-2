@@ -73,16 +73,16 @@
         }
 
         .barcode-label strong {
-            font-size: 10px;
+            font-size: 14px;
             font-weight: 900;
         }
 
         .barcode-label small {
-            font-size: 8px;
+            font-size: 12px;
         }
 
         .barcode-label .brand {
-            font-size: 8px;
+            font-size: 16px;
             text-transform: uppercase;
             letter-spacing: 0.3px;
             color: #555;
@@ -107,7 +107,6 @@
             display: flex;
             align-items: baseline;
             justify-content: center;
-            gap: 1.5mm;
             width: 100%;
             margin-top: 0.4mm;
         }
