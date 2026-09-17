@@ -72,17 +72,25 @@ class ProductController extends Controller
                     : null;
                 $brand        = $variation->product->brand ?? '';
 
-                // FIX: default getBarcode() renders at (~modules × 2)px wide by
-                // only 30px tall, then the label CSS stretches that up for
-                // print. Sized here for the 38x25mm label's 33mm x 7mm image
-                // box (~264x56px at a thermal printer's ~203 DPI) — the old
-                // defaults were far below that, upscaled into soft, fuzzy
-                // bars a handheld scanner can fail to read. If you resize the
-                // label in multiple-barcodes.blade.php, rescale these to
-                // match its new img width/height at ~203px/inch.
+                // Sized to match the label's 30mm x 9mm barcode image box
+                // (~240x72px at a thermal printer's ~203 DPI) so the source
+                // PNG isn't being upscaled and blurred at print time.
+                //
+                // IMPORTANT — this controls sharpness only, not the physical
+                // width of each bar on paper: object-fit:contain always
+                // scales the whole image to fit 30mm regardless of
+                // widthFactor. What actually determines how wide (and how
+                // scannable) each bar is on a 38mm label is how much text
+                // gets encoded — a short code like "8901234" prints with
+                // comfortably wide bars; a long generated id like
+                // "SHP-3-B-45678901234" gets compressed into the same 30mm
+                // and comes out with much thinner, less forgiving bars.
+                // For reliable scans at this label size, prefer short
+                // numeric/alphanumeric barcodes over long auto-generated
+                // fallback ids wherever you control the source value.
                 $generator    = new BarcodeGeneratorPNG();
                 $barcodeImage = base64_encode(
-                    $generator->getBarcode($barcodeText, $generator::TYPE_CODE_128, widthFactor: 2, height: 56)
+                    $generator->getBarcode($barcodeText, $generator::TYPE_CODE_128, widthFactor: 2, height: 72)
                 );
 
                 for ($i = 0; $i < $qty; $i++) {

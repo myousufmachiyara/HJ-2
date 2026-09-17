@@ -24,6 +24,9 @@
            and labels come out upside-down AGAIN, just change this to
            rotate(0deg) (or delete the transform line).
            ──────────────────────────────────────────────────────────── */
+        .barcode-label {
+            transform: rotate(180deg);
+        }
 
         * {
             box-sizing: border-box;
@@ -41,7 +44,7 @@
         .barcode-label {
             width: 38mm;
             height: 25mm;
-            padding: 0.5mm 1.5mm;
+            padding: 0.6mm 1.6mm;
             margin: 0;
             display: flex;
             flex-direction: column;
@@ -58,54 +61,86 @@
             break-after: auto;
         }
 
+        /* Font sizes below were computed against the label's real vertical
+           budget (25mm - 2×0.6mm padding = 23.8mm). Every stacked element,
+           at these sizes including line-height, adds up to ~21mm — leaving
+           slack instead of being crammed edge-to-edge at 5px, which is what
+           made the previous pass look cramped and amateurish. */
         .barcode-label strong,
         .barcode-label small {
             display: block;
             width: 100%;
-            line-height: 1.05;
+            line-height: 1.15;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
         .barcode-label strong {
-            font-size: 6.5px;
+            font-size: 8px;
+            font-weight: 700;
         }
 
         .barcode-label small {
-            font-size: 5.5px;
+            font-size: 6.5px;
         }
 
         .barcode-label .brand {
-            font-size: 5px;
+            font-size: 5.5px;
             text-transform: uppercase;
+            letter-spacing: 0.3px;
             color: #555;
+        }
+
+        /* Human-readable barcode number in a monospace face with a little
+           letter-spacing — standard convention on real retail tags, and
+           noticeably easier to read/key-in manually than the default
+           proportional font at this size. */
+        .barcode-label .barcode-number {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 6.5px;
+            letter-spacing: 0.4px;
+            margin-top: 0.3mm;
+        }
+
+        /* Compare-at and current price share one line, compare-at struck
+           through on the left — the standard retail-tag convention, and
+           more compact than stacking them, which frees room for a bigger
+           price. */
+        .price-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 1.5mm;
+            width: 100%;
+            margin-top: 0.4mm;
         }
 
         .barcode-label .compare-price {
             text-decoration: line-through;
             color: #888;
-            font-size: 5.5px;
+            font-size: 6px;
+            white-space: nowrap;
         }
 
         .barcode-label .price {
-            font-size: 7.5px;
-            font-weight: bold;
+            font-size: 10px;
+            font-weight: 800;
+            white-space: nowrap;
         }
 
-        /* Rescaled for the 38x25mm label. Content area is 35mm wide
-           (38mm - 2×1.5mm padding); the image is deliberately narrower
-           than that (30mm, centered by the flex layout) so it keeps a
-           genuine ~2.5mm QUIET ZONE on each side — the blank margin a
-           scanner uses to detect where the bars start/stop. The earlier
-           33mm width left under 1mm total, which is a common real-world
-           cause of unreliable scans, separate from any rotation issue. */
+        /* Content area is 35mm wide (38mm - 2×1.6mm padding); the image is
+           deliberately narrower than that (30mm, centered by the flex
+           layout) so it keeps a genuine ~2.5mm QUIET ZONE on each side —
+           the blank margin a scanner uses to detect where the bars
+           start/stop. Height bumped to 9mm now that the layout has room,
+           since taller bars scan more reliably too. */
         .barcode-label img {
             width: 30mm;
             max-width: 100%;
-            height: 8mm;
+            height: 9mm;
             object-fit: contain;
-            margin: 0.3mm 0;
+            margin: 0.4mm 0 0.2mm;
         }
 
         .no-print {
@@ -170,11 +205,13 @@
             <small>{{ $barcode['variation'] }}</small>
         @endif
         <img src="data:image/png;base64,{{ $barcode['barcodeImage'] }}" alt="barcode">
-        <small>{{ $barcode['barcodeText'] }}</small>
-        @if(!empty($barcode['comparePrice']))
-            <small class="compare-price">Rs. {{ $barcode['comparePrice'] }}</small>
-        @endif
-        <span class="price">Rs. {{ $barcode['price'] }}</span>
+        <small class="barcode-number">{{ $barcode['barcodeText'] }}</small>
+        <div class="price-row">
+            @if(!empty($barcode['comparePrice']))
+                <small class="compare-price">Rs. {{ $barcode['comparePrice'] }}</small>
+            @endif
+            <span class="price">Rs. {{ $barcode['price'] }}</span>
+        </div>
     </div>
 @endforeach
 
