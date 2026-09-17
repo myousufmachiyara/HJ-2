@@ -114,6 +114,22 @@
             margin: 0.4mm 0 0.2mm;
         }
 
+        .no-print {
+            text-align: center;
+            margin: 16px 0;
+        }
+
+        .no-print .reminder {
+            max-width: 420px;
+            margin: 0 auto 12px;
+            padding: 10px 14px;
+            background: #fff3cd;
+            border: 1px solid #ffe08a;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: left;
+        }
+
         @media screen {
             body {
                 background: #ddd;
@@ -138,6 +154,9 @@
 </head>
 <body>
 
+<div class="no-print">
+    <button onclick="window.print()">Print Labels</button>
+</div>
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
