@@ -40,7 +40,7 @@
             padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
-            flex-direction: row;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             text-align: center;
