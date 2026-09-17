@@ -11,7 +11,7 @@
            misalign / split across labels.
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 38mm 26mm;   /* ← label width x height */
+            size: 4.9cm 2.4cm;   /* ← label width x height */
             margin: 0;
         }
 
@@ -35,8 +35,8 @@
         }
 
         .barcode-label {
-            width: 38mm;
-            height: 26mm;
+            width: 4.9cm;
+            height: 2.4cm;
             padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
