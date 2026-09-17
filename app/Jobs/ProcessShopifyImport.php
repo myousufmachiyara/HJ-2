@@ -8,9 +8,10 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use App\Models\{
-    ShopifyStore, ShopifySyncLog, Product,
+    ShopifyStore, ShopifySyncLog, Product, ProductCategory, MeasurementUnit,
     Attribute, AttributeValue, ProductVariation, ProductVariationAttributeValue
 };
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\{Http, DB, Log};
 use Illuminate\Support\Str;
 
@@ -91,8 +92,9 @@ class ProcessShopifyImport implements ShouldQueue
     // ─────────────────────────────────────────────
     private function fetchAllProducts(): array
     {
-        $all = [];
-        $url = "https://{$this->store->shop_url}/admin/api/2025-01/products.json?limit=250";
+        $all        = [];
+        $apiVersion = config('services.shopify.api_version', '2025-01');
+        $url        = "https://{$this->store->shop_url}/admin/api/{$apiVersion}/products.json?limit=250";
 
         while ($url) {
             $response = Http::timeout(60)
@@ -176,23 +178,27 @@ class ProcessShopifyImport implements ShouldQueue
         $firstVariant = $shp['variants'][0] ?? [];
 
         $product = Product::updateOrCreate(
-            // Match on Shopify's own product ID — never on SKU.
-            // This is stable even if the merchant changes the SKU.
-            ['shopify_product_id' => (string) $shp['id']],
+            // Match on Shopify's own product ID, scoped to this store — never
+            // on SKU. Stable even if the merchant renames the SKU, and scoped
+            // so two different stores can never collide on the same numeric id.
+            [
+                'shopify_store_id'   => $this->store->id,
+                'shopify_product_id' => (string) $shp['id'],
+            ],
             [
                 'name'              => $shp['title'],
                 // FIX: product SKU is now always store-scoped and never
                 // duplicates the first variant's SKU (see resolveProductSku).
                 'sku'               => $this->resolveProductSku($shp),
                 'description'       => strip_tags($shp['body_html'] ?? ''),
-                // FIX: category_id and measurement_unit should NOT be
-                // hardcoded. Read them from the store's own settings
-                // so re-imports don't silently overwrite user edits.
-                // Fall back to 1 only when the store has no preference set.
-                'category_id'       => $this->store->default_category_id ?? 1,
-                'measurement_unit'  => $this->store->default_measurement_unit ?? 1,
+                // category_id / measurement_unit come from the store's own
+                // settings (required at connect time — see ShopifyStore::
+                // hasImportDefaults() and ShopifyStoreController::dispatchImport()),
+                // so re-imports don't silently overwrite user edits and never
+                // guess a category/unit id that might not exist.
+                'category_id'       => $this->resolveCategoryId(),
+                'measurement_unit'  => $this->resolveMeasurementUnitId(),
                 'selling_price'     => $firstVariant['price'] ?? 0,
-                'shopify_store_id'  => $this->store->id,
             ]
         );
 
@@ -229,18 +235,48 @@ class ProcessShopifyImport implements ShouldQueue
 
         // FIX: added product_id to the match keys so two stores that happen
         // to share a SKU string (e.g. "RED-L") don't overwrite each other.
-        $pv = ProductVariation::updateOrCreate(
-            [
-                'sku'        => $sku,
-                'product_id' => $productId,
-            ],
-            [
-                'product_id'     => $productId,
-                'barcode'        => $barcode,
-                'selling_price'  => $v['price'] ?? 0,
-                'stock_quantity' => $v['inventory_quantity'] ?? 0,
-            ]
-        );
+        //
+        // NOTE: product_variations.sku still carries a *global* unique index
+        // (it predates multi-store Shopify sync), so two different stores
+        // whose merchants independently picked the same raw SKU string can
+        // still collide on INSERT even though the match-keys above are
+        // store/product-scoped. Rather than crash-and-skip that variant, we
+        // detect the unique-constraint violation and retry once with a
+        // store-scoped SKU so the variant is never silently lost.
+        try {
+            $pv = ProductVariation::updateOrCreate(
+                [
+                    'sku'        => $sku,
+                    'product_id' => $productId,
+                ],
+                [
+                    'product_id'     => $productId,
+                    'barcode'        => $barcode,
+                    'selling_price'  => $v['price'] ?? 0,
+                    'stock_quantity' => $v['inventory_quantity'] ?? 0,
+                ]
+            );
+        } catch (QueryException $e) {
+            if ((int) $e->getCode() !== 23000) {
+                throw $e;
+            }
+
+            $scopedSku = 'SHP-' . $this->store->id . '-V-' . $v['id'];
+            Log::warning("  SKU '{$sku}' already used by another store's variant — using '{$scopedSku}' instead.");
+
+            $pv = ProductVariation::updateOrCreate(
+                [
+                    'sku'        => $scopedSku,
+                    'product_id' => $productId,
+                ],
+                [
+                    'product_id'     => $productId,
+                    'barcode'        => $barcode,
+                    'selling_price'  => $v['price'] ?? 0,
+                    'stock_quantity' => $v['inventory_quantity'] ?? 0,
+                ]
+            );
+        }
 
         // Link variant → attribute values
         foreach (['option1', 'option2', 'option3'] as $optKey) {
@@ -278,6 +314,47 @@ class ProcessShopifyImport implements ShouldQueue
      * Products and variants live in separate tables with separate SKU columns,
      * so they need independent, non-overlapping identifiers.
      */
+    /**
+     * The controller refuses to dispatch this job at all unless the store
+     * has both defaults set (see ShopifyStore::hasImportDefaults()), so
+     * these should always resolve directly. The DB lookups here are a last
+     * line of defense — e.g. a job dispatched manually via tinker/console —
+     * so a bad id never gets silently assumed to exist.
+     */
+    private function resolveCategoryId(): int
+    {
+        if ($this->store->default_category_id && ProductCategory::whereKey($this->store->default_category_id)->exists()) {
+            return $this->store->default_category_id;
+        }
+
+        $fallback = ProductCategory::query()->value('id');
+
+        if (!$fallback) {
+            throw new \RuntimeException('No product category exists to assign imported Shopify products to.');
+        }
+
+        Log::warning("Store #{$this->store->id} has no valid default_category_id — using category #{$fallback} instead.");
+
+        return $fallback;
+    }
+
+    private function resolveMeasurementUnitId(): int
+    {
+        if ($this->store->default_measurement_unit && MeasurementUnit::whereKey($this->store->default_measurement_unit)->exists()) {
+            return $this->store->default_measurement_unit;
+        }
+
+        $fallback = MeasurementUnit::query()->value('id');
+
+        if (!$fallback) {
+            throw new \RuntimeException('No measurement unit exists to assign imported Shopify products to.');
+        }
+
+        Log::warning("Store #{$this->store->id} has no valid default_measurement_unit — using unit #{$fallback} instead.");
+
+        return $fallback;
+    }
+
     private function resolveProductSku(array $shp): string
     {
         // store_id prefix avoids collisions when syncing multiple stores.

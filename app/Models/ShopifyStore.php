@@ -76,4 +76,14 @@ class ShopifyStore extends Model
     {
         return $this->status === 'connected' && $this->getAccessToken() !== null;
     }
+
+    /**
+     * A sync would otherwise fall back to a guessed category/unit id, which
+     * throws a foreign-key error for every single product if that id
+     * doesn't exist. Require the admin to set real defaults first.
+     */
+    public function hasImportDefaults(): bool
+    {
+        return $this->default_category_id !== null && $this->default_measurement_unit !== null;
+    }
 }

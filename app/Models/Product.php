@@ -32,6 +32,9 @@ class Product extends Model
         'measurement_unit',
         'item_type',
         'is_active',
+        // Shopify sync identity — see 2026_09_17_000001 migration.
+        'shopify_store_id',
+        'shopify_product_id',
     ];
 
     protected $casts = [
@@ -69,5 +72,10 @@ class Product extends Model
     public function purchaseInvoices()
     {
         return $this->hasMany(PurchaseInvoiceItem::class, 'item_id');
+    }
+
+    public function shopifyStore()
+    {
+        return $this->belongsTo(ShopifyStore::class, 'shopify_store_id');
     }
 }

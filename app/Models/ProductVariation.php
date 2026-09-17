@@ -14,6 +14,9 @@ class ProductVariation extends Model
         'sku',
         'barcode',
         'stock_quantity',
+        // Shopify sync — see 2026_09_17_000001 migration. Was previously
+        // silently dropped on every import (not fillable, no column).
+        'selling_price',
     ];
 
     // Auto barcode-generation removed — barcode is now entered manually

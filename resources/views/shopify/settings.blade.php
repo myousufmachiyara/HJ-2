@@ -65,6 +65,41 @@
                         @error('client_secret')<div class="invalid-feedback">{{ $message }}</div>@enderror
                     </div>
 
+                    <div class="form-group mb-3">
+                        <label class="form-label fw-semibold">Default Category <span class="text-danger">*</span></label>
+                        <select name="default_category_id"
+                            class="form-select @error('default_category_id') is-invalid @enderror" required>
+                            <option value="">Select category…</option>
+                            @foreach($categories as $category)
+                                <option value="{{ $category->id }}" @selected(old('default_category_id') == $category->id)>
+                                    {{ $category->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <small class="text-muted">Used for any Shopify product that doesn't already exist locally.</small>
+                        @error('default_category_id')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        @if($categories->isEmpty())
+                            <div class="text-danger small mt-1">You need at least one product category before connecting a store.</div>
+                        @endif
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label class="form-label fw-semibold">Default Unit <span class="text-danger">*</span></label>
+                        <select name="default_measurement_unit"
+                            class="form-select @error('default_measurement_unit') is-invalid @enderror" required>
+                            <option value="">Select unit…</option>
+                            @foreach($units as $unit)
+                                <option value="{{ $unit->id }}" @selected(old('default_measurement_unit') == $unit->id)>
+                                    {{ $unit->name }} ({{ $unit->shortcode }})
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('default_measurement_unit')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        @if($units->isEmpty())
+                            <div class="text-danger small mt-1">You need at least one measurement unit before connecting a store.</div>
+                        @endif
+                    </div>
+
                     <div class="alert alert-info py-2 small">
                         <strong>Note:</strong> After clicking Connect, you'll be redirected to Shopify to approve access.
                         You'll be brought back automatically. The import will start in the background.
@@ -96,6 +131,7 @@
                             <th>Store</th>
                             <th>URL</th>
                             <th>Status</th>
+                            <th>Import Defaults</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -118,6 +154,37 @@
                                 <span class="badge {{ $badgeClass }}">
                                     {{ ucfirst($store->status) }}
                                 </span>
+                            </td>
+                            <td>
+                                @unless($store->hasImportDefaults())
+                                    <span class="badge bg-danger">Not set — sync will be blocked</span>
+                                @endunless
+                                <details>
+                                    <summary class="small text-primary" style="cursor:pointer;">
+                                        {{ $store->hasImportDefaults() ? 'Edit' : 'Set now' }}
+                                    </summary>
+                                    <form action="{{ route('shopify.store.defaults', $store->id) }}" method="POST" class="mt-2">
+                                        @csrf
+                                        @method('PUT')
+                                        <select name="default_category_id" class="form-select form-select-sm mb-1" required>
+                                            <option value="">Category…</option>
+                                            @foreach($categories as $category)
+                                                <option value="{{ $category->id }}" @selected($store->default_category_id == $category->id)>
+                                                    {{ $category->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <select name="default_measurement_unit" class="form-select form-select-sm mb-1" required>
+                                            <option value="">Unit…</option>
+                                            @foreach($units as $unit)
+                                                <option value="{{ $unit->id }}" @selected($store->default_measurement_unit == $unit->id)>
+                                                    {{ $unit->name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                                    </form>
+                                </details>
                             </td>
                             <td>
                                 <div class="d-flex gap-2">

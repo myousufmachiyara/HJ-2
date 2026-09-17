@@ -193,42 +193,42 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // ── Shopify ────────────────────────────────────────────────────────────────
+    // Permission-gated like every other module (see database/seeders/DatabaseSeeder.php,
+    // which already seeds shopify_stores.{index,create,edit,delete,print} — nothing
+    // here was actually enforcing them before this fix).
     Route::prefix('shopify')->name('shopify.')->group(function () {
 
         Route::get('settings', [ShopifyStoreController::class, 'index'])
+            ->middleware('check.permission:shopify_stores.index')
             ->name('settings');
 
         // Step 1: submit form → redirects to Shopify
         Route::post('store', [ShopifyStoreController::class, 'store'])
+            ->middleware('check.permission:shopify_stores.create')
             ->name('store');
 
-        // Step 2: Shopify redirects back here
+        // Step 2: Shopify redirects back here. No permission check — Shopify itself
+        // hits this URL via the merchant's browser redirect. It is protected by the
+        // per-store `state` token + HMAC signature verification inside the controller
+        // instead of an ability check.
         Route::get('oauth/callback', [ShopifyStoreController::class, 'oauthCallback'])
             ->name('oauth.callback');
 
+        Route::put('store/{id}/defaults', [ShopifyStoreController::class, 'updateDefaults'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.defaults');
+
         Route::post('store/{id}/sync', [ShopifyStoreController::class, 'manualSync'])
+            ->middleware('check.permission:shopify_stores.edit')
             ->name('store.sync');
 
         Route::delete('store/{id}', [ShopifyStoreController::class, 'destroy'])
+            ->middleware('check.permission:shopify_stores.delete')
             ->name('store.delete');
 
         Route::post('import', [ShopifyStoreController::class, 'import'])
+            ->middleware('check.permission:shopify_stores.edit')
             ->name('import');
-    });
-    
-    // routes/web.php — outside auth middleware
-    Route::get('/shopify/callback', function (\Illuminate\Http\Request $request) {
-        $shop = $request->query('shop');
-        $code = $request->query('code');
-
-        $response = \Illuminate\Support\Facades\Http::post(
-            "https://{$shop}/admin/oauth/access_token", [
-            'client_id'     => config('services.shopify.client_id'),   // from .env
-            'client_secret' => config('services.shopify.client_secret'), // from .env
-            'code'          => $code,
-        ]);
-
-        dd($response->json()); // Remove this line after getting token
     });
 
     // ── Bulk Excel import (items only) ─────────────────────────────────
