@@ -63,6 +63,7 @@
            clipped by `overflow: hidden`. */
         .barcode-label strong,
         .barcode-label small {
+            font-weight: 600;
             display: block;
             width: 100%;
             line-height: 1.15;
