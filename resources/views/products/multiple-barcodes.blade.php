@@ -99,31 +99,6 @@
             margin-top: 0.3mm;
         }
 
-        /* Compare-at and current price share one line, compare-at struck
-           through on the left — the standard retail-tag convention, and
-           more compact than stacking them, which frees room for a bigger
-           price. */
-        .price-row {
-            display: flex;
-            align-items: baseline;
-            justify-content: center;
-            width: 100%;
-            margin-top: 0.4mm;
-        }
-
-        .barcode-label .compare-price {
-            text-decoration: line-through;
-            color: #888;
-            font-size: 10px;
-            white-space: nowrap;
-        }
-
-        .barcode-label .price {
-            font-size: 12px;
-            font-weight: 800;
-            white-space: nowrap;
-        }
-
         /* Content area is 35mm wide (38mm - 2×1.6mm padding); the image is
            deliberately narrower than that (30mm, centered by the flex
            layout) so it keeps a genuine ~2.5mm QUIET ZONE on each side —
@@ -201,12 +176,6 @@
         @endif
         <img src="data:image/png;base64,{{ $barcode['barcodeImage'] }}" alt="barcode">
         <small class="barcode-number">{{ $barcode['barcodeText'] }}</small>
-        <div class="price-row">
-            @if(!empty($barcode['comparePrice']))
-                <small class="compare-price">Rs. {{ $barcode['comparePrice'] }}</small>
-            @endif
-            <span class="price">Rs. {{ $barcode['price'] }}</span>
-        </div>
     </div>
 @endforeach
 
