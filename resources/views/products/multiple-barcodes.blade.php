@@ -24,9 +24,6 @@
            and labels come out upside-down AGAIN, just change this to
            rotate(0deg) (or delete the transform line).
            ──────────────────────────────────────────────────────────── */
-        .barcode-label {
-            transform: rotate(180deg);
-        }
 
         * {
             box-sizing: border-box;
