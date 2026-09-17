@@ -72,9 +72,16 @@ class ProductController extends Controller
                     : null;
                 $brand        = $variation->product->brand ?? '';
 
+                // FIX: default getBarcode() renders at (~modules × 2)px wide by
+                // only 30px tall, then the label CSS stretches that up to
+                // 44mm × 10mm for print. At a thermal printer's ~203 DPI that's
+                // roughly 352×80px on paper, so the old defaults were being
+                // upscaled ~2.6x in height alone — soft, fuzzy bars that a
+                // handheld scanner can fail to read. Render close to the
+                // actual print resolution instead so it stays crisp.
                 $generator    = new BarcodeGeneratorPNG();
                 $barcodeImage = base64_encode(
-                    $generator->getBarcode($barcodeText, $generator::TYPE_CODE_128)
+                    $generator->getBarcode($barcodeText, $generator::TYPE_CODE_128, widthFactor: 3, height: 80)
                 );
 
                 for ($i = 0; $i < $qty; $i++) {
