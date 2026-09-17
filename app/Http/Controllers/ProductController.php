@@ -40,71 +40,100 @@ class ProductController extends Controller
         return view('products.barcode-selection', compact('variations'));
     }
 
+    /**
+     * Validate + expand the barcode-selection form's posted variation ids
+     * and quantities into one row per physical label to print (qty
+     * duplicated), shared by both the browser-print (PNG) and Zebra ZPL
+     * printing flows so they can never drift apart on price/brand/fallback
+     * logic. Returns null (after writing validation errors onto $errors)
+     * if validation fails.
+     */
+    private function collectBarcodeRows(Request $request, &$validationRedirect = null): ?array
+    {
+        $validator = Validator::make($request->all(), [
+            'selected_variations'   => 'required|array|min:1',
+            'selected_variations.*' => 'exists:product_variations,id',
+            'quantity'              => 'required|array',
+        ]);
+
+        if ($validator->fails()) {
+            Log::error('Barcode generation validation failed', [
+                'errors'  => $validator->errors(),
+                'request' => $request->all(),
+            ]);
+            $validationRedirect = back()->withErrors($validator)->withInput();
+            return null;
+        }
+
+        $rows = [];
+
+        foreach ($request->selected_variations as $variationId) {
+            $qty       = max(1, (int)($request->quantity[$variationId] ?? 1));
+            $variation = ProductVariation::with('product')->findOrFail($variationId);
+
+            // Manual barcode: variation barcode first, then fall back to the
+            // product's own barcode, then SKU as a last resort.
+            $barcodeText  = $variation->barcode ?? $variation->product->barcode ?? $variation->sku ?? 'NO-BARCODE';
+            $price        = number_format($variation->product->selling_price ?? 0, 2);
+            $comparePrice = !empty($variation->product->compare_at_price)
+                ? number_format($variation->product->compare_at_price, 2)
+                : null;
+            $brand        = $variation->product->brand ?? '';
+
+            for ($i = 0; $i < $qty; $i++) {
+                $rows[] = [
+                    'product'      => $variation->product->name,
+                    'brand'        => $brand,
+                    'variation'    => $variation->name ?? '',
+                    'barcodeText'  => $barcodeText,
+                    'price'        => $price,
+                    'comparePrice' => $comparePrice,
+                    'sku'          => $variation->sku,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
     public function generateMultipleBarcodes(Request $request)
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'selected_variations'   => 'required|array|min:1',
-                'selected_variations.*' => 'exists:product_variations,id',
-                'quantity'              => 'required|array',
-            ]);
-
-            if ($validator->fails()) {
-                Log::error('Barcode generation validation failed', [
-                    'errors'  => $validator->errors(),
-                    'request' => $request->all(),
-                ]);
-                return back()->withErrors($validator)->withInput();
+            $rows = $this->collectBarcodeRows($request, $validationRedirect);
+            if ($rows === null) {
+                return $validationRedirect;
             }
 
-            $barcodes = [];
+            // Generate each variation's barcode PNG once and reuse it across
+            // its duplicated qty rows, rather than re-rendering per copy.
+            $imageCache = [];
+            $generator  = new BarcodeGeneratorPNG();
+            $barcodes   = [];
 
-            foreach ($request->selected_variations as $variationId) {
-                $qty       = max(1, (int)($request->quantity[$variationId] ?? 1));
-                $variation = ProductVariation::with('product')->findOrFail($variationId);
-
-                // Manual barcode: variation barcode first, then fall back to the
-                // product's own barcode, then SKU as a last resort.
-                $barcodeText  = $variation->barcode ?? $variation->product->barcode ?? $variation->sku ?? 'NO-BARCODE';
-                $price        = number_format($variation->product->selling_price ?? 0, 2);
-                $comparePrice = !empty($variation->product->compare_at_price)
-                    ? number_format($variation->product->compare_at_price, 2)
-                    : null;
-                $brand        = $variation->product->brand ?? '';
-
-                // Sized to match the label's 30mm x 9mm barcode image box
-                // (~240x72px at a thermal printer's ~203 DPI) so the source
-                // PNG isn't being upscaled and blurred at print time.
-                //
-                // IMPORTANT — this controls sharpness only, not the physical
-                // width of each bar on paper: object-fit:contain always
-                // scales the whole image to fit 30mm regardless of
-                // widthFactor. What actually determines how wide (and how
-                // scannable) each bar is on a 38mm label is how much text
-                // gets encoded — a short code like "8901234" prints with
-                // comfortably wide bars; a long generated id like
-                // "SHP-3-B-45678901234" gets compressed into the same 30mm
-                // and comes out with much thinner, less forgiving bars.
-                // For reliable scans at this label size, prefer short
-                // numeric/alphanumeric barcodes over long auto-generated
-                // fallback ids wherever you control the source value.
-                $generator    = new BarcodeGeneratorPNG();
-                $barcodeImage = base64_encode(
-                    $generator->getBarcode($barcodeText, $generator::TYPE_CODE_128, widthFactor: 2, height: 72)
-                );
-
-                for ($i = 0; $i < $qty; $i++) {
-                    $barcodes[] = [
-                        'product'      => $variation->product->name,
-                        'brand'        => $brand,
-                        'variation'    => $variation->name ?? '',
-                        'barcodeText'  => $barcodeText,
-                        'barcodeImage' => $barcodeImage,
-                        'price'        => $price,
-                        'comparePrice' => $comparePrice,
-                        'sku'          => $variation->sku,
-                    ];
+            foreach ($rows as $row) {
+                if (!isset($imageCache[$row['barcodeText']])) {
+                    // Sized to match the label's 30mm x 9mm barcode image box
+                    // (~240x72px at a thermal printer's ~203 DPI) so the source
+                    // PNG isn't being upscaled and blurred at print time.
+                    //
+                    // IMPORTANT — this controls sharpness only, not the physical
+                    // width of each bar on paper: object-fit:contain always
+                    // scales the whole image to fit 30mm regardless of
+                    // widthFactor. What actually determines how wide (and how
+                    // scannable) each bar is on a 38mm label is how much text
+                    // gets encoded — a short code like "8901234" prints with
+                    // comfortably wide bars; a long generated id like
+                    // "SHP-3-B-45678901234" gets compressed into the same 30mm
+                    // and comes out with much thinner, less forgiving bars.
+                    // For reliable scans at this label size, prefer short
+                    // numeric/alphanumeric barcodes over long auto-generated
+                    // fallback ids wherever you control the source value.
+                    $imageCache[$row['barcodeText']] = base64_encode(
+                        $generator->getBarcode($row['barcodeText'], $generator::TYPE_CODE_128, widthFactor: 2, height: 72)
+                    );
                 }
+
+                $barcodes[] = $row + ['barcodeImage' => $imageCache[$row['barcodeText']]];
             }
 
             return view('products.multiple-barcodes', compact('barcodes'));
@@ -116,6 +145,149 @@ class ProductController extends Controller
                 'request' => $request->all(),
             ]);
             return back()->with('error', 'Something went wrong while generating barcodes.');
+        }
+    }
+
+    /**
+     * Physical label geometry in ZPL dots. THIS is the one place to correct
+     * if the real label size changes — measured (via ruler, in inches) as
+     * 2in x 0.9in, matching resources/views/products/multiple-barcodes.
+     * blade.php's @page size. Keeping both in inches (rather than
+     * converting to mm) avoids re-introducing the kind of rounding/typo
+     * drift that happened going mm → cm earlier in this label's history.
+     * 203 dpi is the Zebra GC420's native resolution (both GC420d/GC420t).
+     */
+    private function labelZplDots(): array
+    {
+        $widthIn   = 2;
+        $heightIn  = 0.9;
+        $dpi       = 203;
+        $dotsPerMm = $dpi / 25.4; // ≈ 8, used for margins below (defined in mm to match the CSS label's padding)
+
+        return [
+            'width'  => (int) round($widthIn * $dpi),
+            'height' => (int) round($heightIn * $dpi),
+            'dpm'    => $dotsPerMm,
+        ];
+    }
+
+    // ^ and ~ are ZPL's own command/control prefixes — stray occurrences in
+    // label text would corrupt the format stream. Product names essentially
+    // never legitimately contain them, so stripping is safe.
+    private function zplEscape(string $text): string
+    {
+        return str_replace(['^', '~', '\\'], '', $text);
+    }
+
+    // ZPL has no CSS text-overflow:ellipsis equivalent, so long names are
+    // truncated deterministically server-side instead — this replaces the
+    // browser-side min-width/overflow/ellipsis trio entirely for this flow.
+    private function zplTruncate(string $text, int $maxChars): string
+    {
+        $text = trim($text);
+        if ($maxChars <= 0 || mb_strlen($text) <= $maxChars) {
+            return $text;
+        }
+        return mb_substr($text, 0, max(0, $maxChars - 1)) . '…';
+    }
+
+    /**
+     * Build one self-contained ^XA...^XZ ZPL label for a single barcode row.
+     * Coordinates are computed explicitly in dots (no CSS flexbox/overflow
+     * quirks to fight), and the stack is vertically centered the same way
+     * the browser-print label is, just computed exactly instead of relying
+     * on the browser to lay it out.
+     */
+    private function buildZplLabel(array $row): string
+    {
+        $dots         = $this->labelZplDots();
+        $width        = $dots['width'];
+        $height       = $dots['height'];
+        $dpm          = $dots['dpm'];
+        $marginX      = (int) round(1.1 * $dpm); // matches the browser-print label's horizontal padding
+        $marginTop    = (int) round(0.3 * $dpm); // matches its vertical padding
+        $contentWidth = $width - (2 * $marginX);
+        $usableHeight = $height - (2 * $marginTop);
+
+        $brandFont     = 20;
+        $productFont   = 26;
+        $variationFont = 20;
+        $barHeight     = 60;      // Code128 bar height in dots
+        $barcodeBlock  = $barHeight + 24; // + the printer's own interpretation-line text under the bars
+        $gap           = 4;
+
+        $brand     = $this->zplTruncate($this->zplEscape(strtoupper($row['brand'] ?? '')), (int) floor($contentWidth / ($brandFont * 0.6)));
+        $product   = $this->zplTruncate($this->zplEscape($row['product'] ?? ''), (int) floor($contentWidth / ($productFont * 0.6)));
+        $variation = $this->zplTruncate($this->zplEscape($row['variation'] ?? ''), (int) floor($contentWidth / ($variationFont * 0.6)));
+        $barcodeText = $this->zplEscape($row['barcodeText'] ?? '');
+
+        $totalHeight = $barcodeBlock;
+        $totalHeight += $product !== '' ? $productFont + $gap : 0;
+        $totalHeight += $brand !== '' ? $brandFont + $gap : 0;
+        $totalHeight += $variation !== '' ? $variationFont + $gap : 0;
+
+        $y = $marginTop + max(0, (int) round(($usableHeight - $totalHeight) / 2));
+
+        $fields = [];
+
+        if ($brand !== '') {
+            $fields[] = "^FO{$marginX},{$y}^A0N,{$brandFont},{$brandFont}^FD{$brand}^FS";
+            $y += $brandFont + $gap;
+        }
+
+        $fields[] = "^FO{$marginX},{$y}^A0N,{$productFont},{$productFont}^FD{$product}^FS";
+        $y += $productFont + $gap;
+
+        if ($variation !== '') {
+            $fields[] = "^FO{$marginX},{$y}^A0N,{$variationFont},{$variationFont}^FD{$variation}^FS";
+            $y += $variationFont + $gap;
+        }
+
+        // Code128 barcode with the printer's own human-readable
+        // interpretation line under the bars ("Y" below) — this replaces
+        // the separate monospace "barcode number" text field entirely,
+        // since the printer renders it natively and it's guaranteed to
+        // line up with the bars exactly, unlike the HTML/CSS version.
+        $fields[] = "^BY2,3,{$barHeight}";
+        $fields[] = "^FO{$marginX},{$y}^BCN,{$barHeight},Y,N,N^FD{$barcodeText}^FS";
+
+        $body = implode("\n", $fields);
+
+        // ^CI28 switches the printer to UTF-8 so brand/product names with
+        // non-ASCII characters (e.g. Rs., accented letters) print correctly.
+        return "^XA\n^CI28\n^PW{$width}\n^LL{$height}\n{$body}\n^XZ";
+    }
+
+    /**
+     * Same selection form as generateMultipleBarcodes(), but instead of
+     * rendering PNG barcode images into an HTML page for the browser's
+     * print dialog, this builds native ZPL and hands it to the QZ Tray
+     * print page, which sends it straight to the Zebra printer — no
+     * browser/OS page-size negotiation, no CSS rotation, no image
+     * upscaling. See products/print-zpl.blade.php.
+     */
+    public function generateZplLabels(Request $request)
+    {
+        try {
+            $rows = $this->collectBarcodeRows($request, $validationRedirect);
+            if ($rows === null) {
+                return $validationRedirect;
+            }
+
+            $zplBlocks = array_map(fn ($row) => $this->buildZplLabel($row), $rows);
+
+            return view('products.print-zpl', [
+                'barcodes'  => $rows,
+                'zplBlocks' => $zplBlocks,
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('Exception while generating ZPL labels', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+                'request' => $request->all(),
+            ]);
+            return back()->with('error', 'Something went wrong while generating the Zebra labels.');
         }
     }
 
