@@ -33,7 +33,10 @@
             @csrf
             <div class="text-end mb-2">
                 <button type="submit" class="btn btn-primary">
-                    <i class="bi bi-upc-scan"></i> Generate Barcodes
+                    <i class="bi bi-upc-scan"></i> Generate Barcodes (Browser Print)
+                </button>
+                <button type="submit" formaction="{{ route('products.generateZplLabels') }}" class="btn btn-outline-primary">
+                    <i class="bi bi-printer"></i> Print on Zebra (ZPL)
                 </button>
             </div>
             <div class="table-responsive">

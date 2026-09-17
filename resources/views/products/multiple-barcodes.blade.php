@@ -36,7 +36,7 @@
         .barcode-label {
             width: 4.9cm;
             height: 2.4cm;
-            padding: 0.3mm 1.1mm;
+            /* padding: 0.3mm 1.1mm; */
             margin: 0;
             display: flex;
             flex-direction: column;
