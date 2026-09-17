@@ -13,7 +13,7 @@
            .barcode-label width/height below (they must always match).
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 38mm 25mm;   /* ← label width x height */
+            size: 100mm 50mm;   /* ← label width x height */
             margin: 0;
         }
 
@@ -24,10 +24,6 @@
            and labels come out upside-down AGAIN, just change this to
            rotate(0deg) (or delete the transform line).
            ──────────────────────────────────────────────────────────── */
-        .barcode-label {
-            transform: rotate(180deg);
-        }
-
         * {
             box-sizing: border-box;
         }
@@ -42,9 +38,9 @@
         }
 
         .barcode-label {
-            width: 38mm;
-            height: 25mm;
-            padding: 0.6mm 1.6mm;
+            width: 100mm;
+            height: 60mm;
+            padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
             flex-direction: column;
@@ -77,16 +73,16 @@
         }
 
         .barcode-label strong {
-            font-size: 8px;
-            font-weight: 700;
+            font-size: 10px;
+            font-weight: 900;
         }
 
         .barcode-label small {
-            font-size: 6.5px;
+            font-size: 8px;
         }
 
         .barcode-label .brand {
-            font-size: 5.5px;
+            font-size: 8px;
             text-transform: uppercase;
             letter-spacing: 0.3px;
             color: #555;
@@ -98,7 +94,7 @@
            proportional font at this size. */
         .barcode-label .barcode-number {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 6.5px;
+            font-size: 10px;
             letter-spacing: 0.4px;
             margin-top: 0.3mm;
         }
@@ -119,12 +115,12 @@
         .barcode-label .compare-price {
             text-decoration: line-through;
             color: #888;
-            font-size: 6px;
+            font-size: 10px;
             white-space: nowrap;
         }
 
         .barcode-label .price {
-            font-size: 10px;
+            font-size: 12px;
             font-weight: 800;
             white-space: nowrap;
         }
@@ -136,9 +132,9 @@
            start/stop. Height bumped to 9mm now that the layout has room,
            since taller bars scan more reliably too. */
         .barcode-label img {
-            width: 30mm;
+            width: 50mm;
             max-width: 100%;
-            height: 9mm;
+            height: 11mm;
             object-fit: contain;
             margin: 0.4mm 0 0.2mm;
         }
