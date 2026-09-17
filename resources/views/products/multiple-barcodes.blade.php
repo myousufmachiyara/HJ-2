@@ -13,7 +13,7 @@
            .barcode-label width/height below (they must always match).
            ──────────────────────────────────────────────────────────── */
         @page {
-            size: 100mm 50mm;   /* ← label width x height */
+            size: 38mm 26mm;   /* ← label width x height */
             margin: 0;
         }
 
@@ -38,8 +38,8 @@
         }
 
         .barcode-label {
-            width: 100mm;
-            height: 60mm;
+            width: 38mm;
+            height: 26mm;
             padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
@@ -94,9 +94,9 @@
            proportional font at this size. */
         .barcode-label .barcode-number {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 10px;
+            font-size: 12px;
             letter-spacing: 0.4px;
-            margin-top: 0.3mm;
+            margin-top: 0.5mm;
         }
 
         /* Content area is 35mm wide (38mm - 2×1.6mm padding); the image is
@@ -106,7 +106,7 @@
            start/stop. Height bumped to 9mm now that the layout has room,
            since taller bars scan more reliably too. */
         .barcode-label img {
-            width: 50mm;
+            width: 50%;
             max-width: 100%;
             height: 11mm;
             object-fit: contain;
