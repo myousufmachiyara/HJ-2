@@ -97,6 +97,12 @@ class ShopifyStoreController extends Controller
                 ->with('error', $dispatchError);
         }
 
+        // A wrong store address or missing install can't be fixed by the
+        // OAuth page either — show the reason instead of redirecting.
+        if (str_contains($directError, 'Not Found') || str_contains($directError, 'Client ID or Client Secret is wrong')) {
+            return back()->withInput($request->except('client_secret'))->with('error', $directError);
+        }
+
         Log::info("Direct connect failed for {$store->shop_name}, falling back to OAuth redirect: {$directError}");
 
         // Flashed so it's shown when Shopify sends the browser back to

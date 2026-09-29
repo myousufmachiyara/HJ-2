@@ -128,7 +128,19 @@ class ShopifyStore extends Model
 
             Log::warning("Shopify client-credentials rejected for {$this->shop_url} (HTTP {$response->status()}): {$detail}");
 
-            return "Shopify rejected the Client ID / Secret (HTTP {$response->status()}): {$detail}";
+            // Translate Shopify's terse errors into something actionable.
+            return match (true) {
+                $response->status() === 404 =>
+                    "Shopify says Not Found for {$this->shop_url}. Either this is not your store's real *.myshopify.com address "
+                    . "(check Shopify Admin → Settings → Domains, or the store handle in admin.shopify.com/store/<handle>), "
+                    . "or the app is not installed on this store yet (it must appear in Settings → Apps).",
+                str_contains((string) $detail, 'shop_not_permitted') =>
+                    "This app and store are in different Shopify organizations. Create the app from the store's own admin "
+                    . "(Settings → Apps → Develop apps → Build apps in Dev Dashboard).",
+                str_contains((string) $detail, 'invalid_client') || str_contains((string) $detail, 'application_cannot_be_found') =>
+                    'Client ID or Client Secret is wrong. Copy both again from Dev Dashboard → your app → Settings.',
+                default => "Shopify rejected the request (HTTP {$response->status()}): {$detail}",
+            };
         }
 
         $this->setAccessToken($token, (int) ($response->json('expires_in') ?: 86399));
