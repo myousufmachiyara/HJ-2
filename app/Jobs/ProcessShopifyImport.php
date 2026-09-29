@@ -96,9 +96,16 @@ class ProcessShopifyImport implements ShouldQueue
         $apiVersion = config('services.shopify.api_version', '2026-07');
         $url        = "https://{$this->store->shop_url}/admin/api/{$apiVersion}/products.json?limit=250";
 
+        // Renews the 24h client-credentials token first if it's about to expire.
+        $token = $this->store->getValidAccessToken();
+
+        if (!$token) {
+            throw new \Exception('No valid Shopify access token — reconnect the store in Shopify settings.');
+        }
+
         while ($url) {
             $response = Http::timeout(60)
-                ->withHeaders(['X-Shopify-Access-Token' => $this->store->getAccessToken()])
+                ->withHeaders(['X-Shopify-Access-Token' => $token])
                 ->get($url);
 
             if (!$response->successful()) {

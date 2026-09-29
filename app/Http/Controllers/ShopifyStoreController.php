@@ -34,8 +34,9 @@ class ShopifyStoreController extends Controller
 
     // ─────────────────────────────────────────────
     //  Step 1 — User submits form
-    //  Keep client_id + secret only in SESSION
-    //  (encrypted, cleared after callback)
+    //  1) Try direct connect (client credentials grant)
+    //  2) If Shopify refuses, fall back to the OAuth
+    //     approval redirect (see oauthCallback)
     // ─────────────────────────────────────────────
     public function store(Request $request)
     {
@@ -63,43 +64,61 @@ class ShopifyStoreController extends Controller
 
         if ($existing) {
             return back()->withInput()
-                ->with('error', 'This store is already connected.');
+                ->with('error', 'This store is already connected. Disconnect it first to reconnect with new credentials.');
         }
 
-        // Generate CSRF state token
-        $state = Str::random(40);
-
-        // Save store with NO credentials — just name, url, state, and the
-        // import defaults the sync job needs (required up front so a sync
-        // never has to guess a category/unit id that may not exist).
+        // Save the store + its import defaults + the app credentials
+        // (encrypted). The credentials are kept so the 24h client-credentials
+        // token can be renewed automatically before every sync.
         $store = ShopifyStore::updateOrCreate(
             ['shop_url' => $shopUrl],
             [
                 'shop_name'                => $validated['shop_name'],
-                'oauth_state'              => $state,
                 'status'                   => 'pending',
                 'default_category_id'      => $validated['default_category_id'],
                 'default_measurement_unit' => $validated['default_measurement_unit'],
             ]
         );
+        $store->setClientCredentials(trim($request->client_id), trim($request->client_secret));
 
-        // Store client_id + secret ONLY in session, encrypted.
-        // They are used once in the callback then immediately destroyed.
+        // ── Method 1: direct connect (client credentials grant) ──────────
+        // Works for Dev Dashboard apps installed on a store in the same
+        // Shopify organization. No browser redirect, no session, no HMAC.
+        $directError = $store->requestClientCredentialsToken();
+
+        if ($directError === null) {
+            $store->update(['status' => 'connected', 'oauth_state' => null]);
+            Log::info("Connected via client credentials: {$store->shop_name}");
+
+            $dispatchError = $this->dispatchImport($store);
+
+            return redirect()->route('shopify.settings')
+                ->with('success', "✓ {$store->shop_name} connected!" . ($dispatchError ? '' : ' Import queued — check Sync History for progress.'))
+                ->with('error', $dispatchError);
+        }
+
+        Log::info("Direct connect failed for {$store->shop_name}, falling back to OAuth redirect: {$directError}");
+
+        // Flashed so it's shown when Shopify sends the browser back to
+        // BillTrix (App URL = shopify/settings) without completing OAuth.
+        Session::flash('error', "Direct connect failed — {$directError}. Trying Shopify approval page instead.");
+
+        // ── Method 2 (fallback): OAuth authorization-code redirect ───────
+        $state = Str::random(40);
+        $store->update(['oauth_state' => $state]);
+
         Session::put("shopify_oauth_{$state}", [
-            'client_id'     => Crypt::encryptString($request->client_id),
-            'client_secret' => Crypt::encryptString($request->client_secret),
+            'client_id'     => Crypt::encryptString(trim($request->client_id)),
+            'client_secret' => Crypt::encryptString(trim($request->client_secret)),
             'store_id'      => $store->id,
         ]);
 
-        // Redirect to Shopify OAuth
-        $redirectUri = route('shopify.oauth.callback');
-
         $authUrl = "https://{$shopUrl}/admin/oauth/authorize?" . http_build_query([
-            'client_id'    => $request->client_id,
+            'client_id'    => trim($request->client_id),
             // read_product_listings removed: it's a sales-channel-only scope and
             // makes Shopify reject the install for a normal custom app.
             'scope'        => config('services.shopify.scopes', 'read_products,read_inventory'),
-            'redirect_uri' => $redirectUri,
+            'redirect_uri' => route('shopify.oauth.callback'),
             'state'        => $state,
         ]);
 
@@ -270,7 +289,7 @@ class ShopifyStoreController extends Controller
     {
         $store = ShopifyStore::findOrFail($id);
 
-        if ($store->status !== 'connected' || !$store->getAccessToken()) {
+        if (!$store->isConnected()) {
             return back()->with('error', "{$store->shop_name} is not connected.");
         }
 
