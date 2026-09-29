@@ -93,7 +93,7 @@ class ProcessShopifyImport implements ShouldQueue
     private function fetchAllProducts(): array
     {
         $all        = [];
-        $apiVersion = config('services.shopify.api_version', '2025-01');
+        $apiVersion = config('services.shopify.api_version', '2026-07');
         $url        = "https://{$this->store->shop_url}/admin/api/{$apiVersion}/products.json?limit=250";
 
         while ($url) {
@@ -243,39 +243,30 @@ class ProcessShopifyImport implements ShouldQueue
         // store/product-scoped. Rather than crash-and-skip that variant, we
         // detect the unique-constraint violation and retry once with a
         // store-scoped SKU so the variant is never silently lost.
-        try {
-            $pv = ProductVariation::updateOrCreate(
-                [
-                    'sku'        => $sku,
-                    'product_id' => $productId,
-                ],
-                [
-                    'product_id'     => $productId,
-                    'barcode'        => $barcode,
-                    'selling_price'  => $v['price'] ?? 0,
-                    'stock_quantity' => $v['inventory_quantity'] ?? 0,
-                ]
-            );
-        } catch (QueryException $e) {
-            if ((int) $e->getCode() !== 23000) {
-                throw $e;
+        // product_variations.sku AND .barcode both carry global unique indexes.
+        // Merchants often reuse a barcode across variants (or leave the same
+        // SKU on two products), which used to throw 23000 on *both* attempts
+        // and silently drop the variant. Try: real sku+barcode → scoped sku →
+        // scoped sku with no barcode.
+        $attempts = [
+            [$sku, $barcode],
+            ['SHP-' . $this->store->id . '-V-' . $v['id'], $barcode],
+            ['SHP-' . $this->store->id . '-V-' . $v['id'], null],
+        ];
+
+        $pv = null;
+        foreach ($attempts as $i => [$trySku, $tryBarcode]) {
+            try {
+                $pv = $this->upsertVariation($v, $productId, $trySku, $tryBarcode);
+                if ($i > 0) {
+                    Log::warning("  Variant {$v['id']}: duplicate SKU/barcode — saved as SKU '{$trySku}'" . ($tryBarcode ? '' : ' without barcode') . '.');
+                }
+                break;
+            } catch (QueryException $e) {
+                if ((int) $e->getCode() !== 23000 || $i === count($attempts) - 1) {
+                    throw $e;
+                }
             }
-
-            $scopedSku = 'SHP-' . $this->store->id . '-V-' . $v['id'];
-            Log::warning("  SKU '{$sku}' already used by another store's variant — using '{$scopedSku}' instead.");
-
-            $pv = ProductVariation::updateOrCreate(
-                [
-                    'sku'        => $scopedSku,
-                    'product_id' => $productId,
-                ],
-                [
-                    'product_id'     => $productId,
-                    'barcode'        => $barcode,
-                    'selling_price'  => $v['price'] ?? 0,
-                    'stock_quantity' => $v['inventory_quantity'] ?? 0,
-                ]
-            );
         }
 
         // Link variant → attribute values
@@ -295,6 +286,31 @@ class ProcessShopifyImport implements ShouldQueue
                 'attribute_value_id'   => $val->id,
             ]);
         }
+    }
+
+    private function upsertVariation(array $v, int $productId, string $sku, ?string $barcode): ProductVariation
+    {
+        // Re-imports: find the row this Shopify variant created earlier under
+        // either its real or its store-scoped SKU so a fallback SKU from a
+        // previous run doesn't produce a duplicate row.
+        $existing = ProductVariation::where('product_id', $productId)
+            ->whereIn('sku', array_unique([$sku, $this->resolveVariantSku($v), 'SHP-' . $this->store->id . '-V-' . $v['id']]))
+            ->first();
+
+        $data = [
+            'product_id'     => $productId,
+            'sku'            => $sku,
+            'barcode'        => $barcode,
+            'selling_price'  => $v['price'] ?? 0,
+            'stock_quantity' => $v['inventory_quantity'] ?? 0,
+        ];
+
+        if ($existing) {
+            $existing->update($data);
+            return $existing;
+        }
+
+        return ProductVariation::create($data);
     }
 
     // ─────────────────────────────────────────────
@@ -386,11 +402,19 @@ class ProcessShopifyImport implements ShouldQueue
     {
         $raw = trim($v['barcode'] ?? '');
 
-        if ($raw !== '') {
+        if ($raw === '') {
+            return 'SHP-' . $this->store->id . '-B-' . $v['id'];
+        }
+
+        // Only expand genuine scientific notation (e.g. "6.94E+11" from an
+        // Excel round-trip). The old code ran EVERY barcode through
+        // number_format((float) …), which turned alphanumeric barcodes like
+        // "ABC123" into "0" → unique-index collision → variant dropped.
+        if (preg_match('/^\d+(\.\d+)?e\+?\d+$/i', $raw)) {
             return number_format((float) $raw, 0, '', '');
         }
 
-        return 'SHP-' . $this->store->id . '-B-' . $v['id'];
+        return $raw;
     }
 
     // ─────────────────────────────────────────────

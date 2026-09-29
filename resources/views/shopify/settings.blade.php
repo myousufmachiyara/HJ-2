@@ -100,6 +100,12 @@
                         @endif
                     </div>
 
+                    <div class="alert alert-warning py-2 small">
+                        <strong>Redirect URL</strong> — paste this exactly into Shopify Dev Dashboard → your app → Versions → Redirect URLs:
+                        <code class="d-block user-select-all mt-1">{{ route('shopify.oauth.callback') }}</code>
+                        Required scopes: <code>{{ config('services.shopify.scopes') }}</code>
+                    </div>
+
                     <div class="alert alert-info py-2 small">
                         <strong>Note:</strong> After clicking Connect, you'll be redirected to Shopify to approve access.
                         You'll be brought back automatically. The import will start in the background.

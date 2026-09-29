@@ -96,7 +96,9 @@ class ShopifyStoreController extends Controller
 
         $authUrl = "https://{$shopUrl}/admin/oauth/authorize?" . http_build_query([
             'client_id'    => $request->client_id,
-            'scope'        => 'read_products,read_inventory,read_product_listings',
+            // read_product_listings removed: it's a sales-channel-only scope and
+            // makes Shopify reject the install for a normal custom app.
+            'scope'        => config('services.shopify.scopes', 'read_products,read_inventory'),
             'redirect_uri' => $redirectUri,
             'state'        => $state,
         ]);
@@ -387,8 +389,15 @@ class ShopifyStoreController extends Controller
             return false;
         }
 
+        // Shopify signs the *raw* key=value pairs joined with '&' — NOT a
+        // URL-encoded query string. http_build_query() re-encodes values such
+        // as the base64 `host` param ('=' → '%3D'), which made the HMAC check
+        // fail on real installs ("Security check failed").
         ksort($params);
-        $computed = hash_hmac('sha256', http_build_query($params), $secret);
+        $message = collect($params)
+            ->map(fn ($v, $k) => $k . '=' . (is_array($v) ? json_encode($v) : $v))
+            ->implode('&');
+        $computed = hash_hmac('sha256', $message, $secret);
         return hash_equals($computed, $hmac);
     }
 }

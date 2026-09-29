@@ -43,7 +43,8 @@ return [
     // so bump SHOPIFY_API_VERSION in .env when Shopify emails a deprecation
     // notice instead of editing code.
     'shopify' => [
-        'api_version' => env('SHOPIFY_API_VERSION', '2025-01'),
+        'api_version' => env('SHOPIFY_API_VERSION', '2026-07'),
+        'scopes'      => env('SHOPIFY_SCOPES', 'read_products,read_inventory'),
     ],
 
 ];
