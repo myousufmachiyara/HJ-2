@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('pdc_cheques', function (Blueprint $table) {
+        if (!Schema::hasTable('pdc_cheques')) Schema::create('pdc_cheques', function (Blueprint $table) {
             $table->id();
             $table->string('pdc_no')->unique();                  // internal ref PDC-00001
             $table->unsignedBigInteger('vendor_id');             // payee (COA vendor)
@@ -35,7 +35,7 @@ return new class extends Migration
         });
 
         // Bills the cheque pays (purchase invoices / FG receivings), with the amount applied to each.
-        Schema::create('pdc_cheque_bills', function (Blueprint $table) {
+        if (!Schema::hasTable('pdc_cheque_bills')) Schema::create('pdc_cheque_bills', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('pdc_cheque_id');
             $table->string('bill_type', 30);                     // purchase | receiving
@@ -47,7 +47,7 @@ return new class extends Migration
             $table->foreign('pdc_cheque_id')->references('id')->on('pdc_cheques')->cascadeOnDelete();
         });
 
-        Schema::create('pdc_cheque_logs', function (Blueprint $table) {
+        if (!Schema::hasTable('pdc_cheque_logs')) Schema::create('pdc_cheque_logs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('pdc_cheque_id');
             $table->string('from_status', 20)->nullable();

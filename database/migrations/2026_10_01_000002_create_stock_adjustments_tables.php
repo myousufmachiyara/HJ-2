@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('stock_adjustments', function (Blueprint $table) {
+        if (!Schema::hasTable('stock_adjustments')) Schema::create('stock_adjustments', function (Blueprint $table) {
             $table->id();
             $table->string('adj_no')->unique();
             $table->date('date');
@@ -26,7 +26,7 @@ return new class extends Migration
             $table->foreign('created_by')->references('id')->on('users')->nullOnDelete();
         });
 
-        Schema::create('stock_adjustment_items', function (Blueprint $table) {
+        if (!Schema::hasTable('stock_adjustment_items')) Schema::create('stock_adjustment_items', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('stock_adjustment_id');
             $table->unsignedBigInteger('product_id');

@@ -250,19 +250,19 @@ class DatabaseSeeder extends Seeder
         $vendors = [
             ['name' => 'Talha Anis',      'detail' => 'Fabric'],
             ['name' => 'Ahmed',           'detail' => 'Fabric'],
-            ['name' => 'Shahbaz Mosk',    'detail' => 'Fabric'],
+            ['name' => 'shahbaz mosk',    'detail' => 'Fabric'],
             ['name' => 'My fashion Asif', 'detail' => 'readymade'],
             ['name' => 'Mujeeb',          'detail' => 'embroidery'],
             ['name' => 'Faizullah',       'detail' => 'Fabric'],
             ['name' => 'Nadim',           'detail' => 'stitching'],
-            ['name' => 'Bag Mustansir',   'detail' => 'Bags'],
+            ['name' => 'Bag mustansir',   'detail' => 'Bags'],
             ['name' => 'Waqar Dulha',     'detail' => 'Fabric'],
-            ['name' => 'Zuhaib Pasha',    'detail' => 'Packaging'],
-            ['name' => 'A.Rehman',        'detail' => 'readymade'],
-            ['name' => 'Sunny',           'detail' => 'stitching'],
-            ['name' => 'Altaf',           'detail' => 'stitching'],
-            ['name' => 'Asim Abid',       'detail' => 'stitching'],
-            ['name' => 'I.R',             'detail' => 'readymade'],
+            ['name' => 'Zuhaib pasha',    'detail' => 'Packaging'],
+            ['name' => 'a.rehman',        'detail' => 'readymade'],
+            ['name' => 'sunny',           'detail' => 'stitching'],
+            ['name' => 'altaf',           'detail' => 'stitching'],
+            ['name' => 'asim abid',       'detail' => 'stitching'],
+            ['name' => 'i.r',             'detail' => 'readymade'],
         ];
 
         $vendorSubHead = SubHeadOfAccounts::findOrFail($vendorShoaId);
