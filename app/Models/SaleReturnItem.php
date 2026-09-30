@@ -15,6 +15,7 @@ class SaleReturnItem extends Model
         'variation_id',
         'qty',
         'price',
+        'unit_cost',
     ];
 
     // Relationships

@@ -4,26 +4,26 @@ namespace App\Imports;
 
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\ToCollection;
-use Maatwebsite\Excel\Concerns\WithStartRow;
 
 /**
- * Generic "give me the raw rows" importer, shared by every bulk-import
- * endpoint. Row 1 is the header (created by each module's "Download
- * Template" button), so we start reading at row 2 and hand back plain
- * rows — the controller decides what each column means per module.
+ * Generic "give me the raw rows" importer shared by every bulk item import.
+ * Row 1 is the header row; it is kept separately so the controller can map
+ * columns by their header text (and fall back to column order).
  */
-class RawRowsImport implements ToCollection, WithStartRow
+class RawRowsImport implements ToCollection
 {
     protected Collection $rows;
+    protected array $header = [];
 
     public function collection(Collection $rows)
     {
-        $this->rows = $rows;
+        $this->header = $rows->isNotEmpty() ? array_map(fn ($h) => trim((string) $h), $rows->first()->toArray()) : [];
+        $this->rows   = $rows->slice(1)->values();
     }
 
-    public function startRow(): int
+    public function getHeader(): array
     {
-        return 2;
+        return $this->header;
     }
 
     public function getRows(): Collection

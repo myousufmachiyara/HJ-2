@@ -12,6 +12,7 @@ class PurchaseInvoice extends Model
     protected $fillable = [
         'invoice_no',
         'vendor_id',
+        'dropoff_location_id',
         'invoice_date',
         'payment_terms',
         'bill_no',
@@ -61,6 +62,11 @@ class PurchaseInvoice extends Model
     public function vendor()
     {
         return $this->belongsTo(ChartOfAccounts::class, 'vendor_id');
+    }
+
+    public function dropoffLocation()
+    {
+        return $this->belongsTo(Location::class, 'dropoff_location_id');
     }
 
     public function creator()

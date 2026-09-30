@@ -27,6 +27,7 @@
                 <th>#</th>
                 <th>Invoice Date</th>
                 <th>Vendor</th>
+                <th>Drop-off</th>
                 <th>Bill No</th>
                 <th>Ref No</th>
                 <th>Attachments</th>
@@ -39,6 +40,7 @@
                 <td>{{ $index + 1 }}</td>
                 <td>{{ \Carbon\Carbon::parse($invoice->invoice_date)->format('d-M-Y') }}</td>
                 <td>{{ $invoice->vendor->name ?? 'N/A' }}</td>
+                <td>{{ $invoice->dropoffLocation->name ?? '-' }}</td>
                 <td>{{ $invoice->bill_no }}</td>
                 <td>{{ $invoice->ref_no }}</td>
                 <td>

@@ -28,6 +28,7 @@
                 <th>Invoice #</th>
                 <th>Date</th>
                 <th>Customer</th>
+                <th>Dispatch From</th>
                 <th>Type</th>
                 <th class="text-end">Net Amount</th>
                 <th class="text-end">Paid</th>
@@ -43,6 +44,7 @@
                   <td>{{ $invoice->invoice_no }}</td>
                   <td>{{ \Carbon\Carbon::parse($invoice->date)->format('d-M-Y') }}</td>
                   <td>{{ $invoice->account->name ?? 'Walk-in' }}</td>
+                  <td>{{ $invoice->location->name ?? '-' }}</td>
                   <td>
                     <span class="badge {{ $invoice->type === 'credit' ? 'bg-warning text-dark' : 'bg-success' }}">
                       {{ ucfirst($invoice->type) }}

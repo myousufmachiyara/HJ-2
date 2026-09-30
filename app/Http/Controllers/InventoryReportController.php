@@ -915,70 +915,30 @@ class InventoryReportController extends Controller
         // 7. LOCATION / CUSTOMER STOCK  (NEW)
         // ────────────────────────────────────────────────────────────────
         if ($tab === 'LOC') {
+            // Location-wise stock now comes straight from the stock ledger
+            // (purchases at drop-off, FG receivings, fabric consumed at CMT,
+            // stock movements, sales / returns at their location, adjustments).
             $selectedLocationId = $request->stock_location_id ?: Location::defaultId();
-            $selectedLocation   = $selectedLocationId ? Location::find($selectedLocationId) : null;
-            $defaultId          = Location::defaultId();
 
-            if ($selectedLocation) {
-                $isDefault  = (bool) $selectedLocation->is_default;
-                $isCustomer = (bool) $selectedLocation->chart_of_account_id;
-
-                foreach ($allProducts as $product) {
-                    $variations = $product->variations->isNotEmpty()
-                        ? $product->variations
-                        : collect([(object)['id' => null, 'sku' => null, 'stock_quantity' => 0]]);
-
-                    foreach ($variations as $var) {
-                        $vid = $var->id ?? null;
-
-                        if ($isCustomer) {
-                            // DC in − return DC out − their sales + their returns
-                            $in    = $transferQty($selectedLocation->id, 'in',  $product->id, $vid);
-                            $out   = $transferQty($selectedLocation->id, 'out', $product->id, $vid);
-                            $csold = $customerSold($selectedLocation->chart_of_account_id, $product->id, $vid);
-                            $cret  = $customerReturned($selectedLocation->chart_of_account_id, $product->id, $vid);
-                            $qty   = $in - $out - $csold + $cret;
-
-                        } elseif ($isDefault) {
-                            // Default holds the remainder: company total − everything held
-                            // at every OTHER location (other warehouses + customers).
-                            $company = $getStockQty($product, $var);
-
-                            $heldElsewhere = 0.0;
-                            foreach ($locations as $loc) {
-                                if ($loc->id === $selectedLocation->id) continue;
-
-                                $lin  = $transferQty($loc->id, 'in',  $product->id, $vid);
-                                $lout = $transferQty($loc->id, 'out', $product->id, $vid);
-
-                                if ($loc->chart_of_account_id) {
-                                    $lsold = $customerSold($loc->chart_of_account_id, $product->id, $vid);
-                                    $lret  = $customerReturned($loc->chart_of_account_id, $product->id, $vid);
-                                    $heldElsewhere += ($lin - $lout - $lsold + $lret);
-                                } else {
-                                    $heldElsewhere += ($lin - $lout);
-                                }
-                            }
-                            $qty = $company - $heldElsewhere;
-
-                        } else {
-                            // Plain warehouse: transfers in − out
-                            $in  = $transferQty($selectedLocation->id, 'in',  $product->id, $vid);
-                            $out = $transferQty($selectedLocation->id, 'out', $product->id, $vid);
-                            $qty = $in - $out;
-                        }
-
-                        if (round($qty, 4) != 0.0) {
-                            $locationStock->push([
-                                'product'   => $product->name,
-                                'variation' => $var->sku ?? null,
-                                'quantity'  => round($qty, 4),
-                            ]);
-                        }
-                    }
-                }
-
-                $locationStock = $locationStock->sortBy('product')->values();
+            if ($selectedLocationId) {
+                $locationStock = \App\Models\StockLedger::with(['product:id,name', 'variation:id,sku'])
+                    ->where('location_id', $selectedLocationId)
+                    ->when($to, fn ($q) => $q->where('date', '<=', $to))
+                    ->groupBy('product_id', 'variation_id')
+                    ->selectRaw('product_id, variation_id, SUM(qty) AS qty')
+                    ->havingRaw('ROUND(SUM(qty), 3) <> 0')
+                    ->get()
+                    ->map(function ($r) {
+                        $cost = \App\Services\Inventory::avgCost($r->product_id, $r->variation_id);
+                        return [
+                            'product'   => $r->product->name ?? ('#' . $r->product_id),
+                            'variation' => $r->variation->sku ?? null,
+                            'quantity'  => round((float) $r->qty, 3),
+                            'unit_cost' => $cost,
+                            'value'     => round($cost * (float) $r->qty, 2),
+                        ];
+                    })
+                    ->sortBy('product')->values();
             }
         }
 

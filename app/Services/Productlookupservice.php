@@ -6,14 +6,9 @@ use App\Models\Product;
 use App\Models\ProductVariation;
 
 /**
- * Resolves a barcode/item-code into a product or product-variation.
- *
- * IMPORTANT: This almost certainly duplicates logic you already have in
- * whatever controller serves GET /get-product-by-code/{code}. Ideally,
- * move that controller's logic in here and have BOTH the live-scan
- * endpoint and this bulk-import flow call resolve(), so the two paths
- * can never drift apart. Adjust model names / column names below to
- * match your actual schema if they differ.
+ * Resolves an item code into a product or product-variation.
+ * Accepts (in this order): variation barcode, variation SKU,
+ * product barcode, product SKU. Used by all bulk Excel imports.
  */
 class ProductLookupService
 {
@@ -25,35 +20,42 @@ class ProductLookupService
             return ['success' => false, 'message' => 'Empty item code'];
         }
 
-        // 1) Variation-level barcode first
-        $variation = ProductVariation::with('product')->where('barcode', $code)->first();
-        if ($variation) {
+        $variation = ProductVariation::with('product')->where('barcode', $code)->first()
+            ?? ProductVariation::with('product')->where('sku', $code)->first();
+
+        if ($variation && $variation->product) {
+            $p = $variation->product;
             return [
-                'success' => true,
-                'type' => 'variation',
+                'success'   => true,
+                'type'      => 'variation',
                 'variation' => [
-                    'id'         => $variation->id,
-                    'product_id' => $variation->product_id,
-                    'sku'        => $variation->sku,
-                    'barcode'    => $variation->barcode,
-                    'price'      => $variation->price ?? optional($variation->product)->cost_price ?? 0,
-                    'unit_id'    => optional($variation->product)->measurement_unit,
+                    'id'            => $variation->id,
+                    'product_id'    => $variation->product_id,
+                    'name'          => $p->name,
+                    'sku'           => $variation->sku,
+                    'barcode'       => $variation->barcode,
+                    'price'         => (float) ($p->cost_price ?? 0),
+                    'cost_price'    => (float) ($p->cost_price ?? 0),
+                    'selling_price' => (float) ($variation->selling_price ?? $p->selling_price ?? 0),
+                    'unit_id'       => $p->measurement_unit,
                 ],
             ];
         }
 
-        // 2) Product-level barcode
-        $product = Product::where('barcode', $code)->first();
+        $product = Product::where('barcode', $code)->first()
+            ?? Product::where('sku', $code)->first();
+
         if ($product) {
             return [
                 'success' => true,
-                'type' => 'product',
+                'type'    => 'product',
                 'product' => [
                     'id'            => $product->id,
                     'name'          => $product->name,
+                    'sku'           => $product->sku,
                     'barcode'       => $product->barcode,
-                    'cost_price'    => $product->cost_price ?? 0,
-                    'selling_price' => $product->selling_price ?? 0,
+                    'cost_price'    => (float) ($product->cost_price ?? 0),
+                    'selling_price' => (float) ($product->selling_price ?? 0),
                     'unit_id'       => $product->measurement_unit,
                 ],
             ];

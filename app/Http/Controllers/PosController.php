@@ -86,6 +86,10 @@ class PosController extends Controller
             'payment_type'       => 'required|in:cash,card,bank',
         ]);
 
+        \App\Services\Inventory::assertAvailable(\App\Models\Location::defaultId(), collect($request->items)->map(fn ($i) => [
+            'product_id' => $i['product_id'], 'variation_id' => $i['variation_id'] ?? null, 'qty' => (float) $i['quantity'],
+        ])->all());
+
         DB::beginTransaction();
         try {
             $invoiceNo  = 'POS-' . str_pad(SaleInvoice::withTrashed()->count() + 1, 5, '0', STR_PAD_LEFT);
@@ -108,6 +112,7 @@ class PosController extends Controller
                 'invoice_no'     => $invoiceNo,
                 'date'           => now()->toDateString(),
                 'account_id'     => $request->customer_id,
+                'location_id'    => \App\Models\Location::defaultId(),
                 'type'           => 'cash',
                 'sub_total'      => $subTotal,
                 'discount'       => $billDisc,
@@ -129,6 +134,7 @@ class PosController extends Controller
                     'sale_price'   => $item['price'],
                     'discount'     => $item['discount'] ?? 0,
                     'quantity'     => $item['quantity'],
+                    'unit_cost'    => \App\Services\Inventory::avgCost((int) $item['product_id'], !empty($item['variation_id']) ? (int) $item['variation_id'] : null),
                     'unit'         => $item['unit_id'],
                 ]);
             }
@@ -344,9 +350,18 @@ class PosController extends Controller
 
     private function postSaleEntries(SaleInvoice $invoice): void
     {
-        if (!$invoice->account_id && $invoice->payments->isEmpty()) return;
+        // Stock leaves the shop / default warehouse + COGS at average cost
+        $location = \App\Models\Location::find($invoice->location_id) ?? \App\Models\Location::default();
+        \App\Services\Inventory::sync($invoice, (string) $invoice->date, $invoice->items->map(fn ($i) => [
+            'product_id' => $i->product_id, 'variation_id' => $i->variation_id, 'location_id' => $location->id,
+            'qty' => -1 * (float) $i->quantity, 'unit_cost' => (float) $i->unit_cost, 'remarks' => 'POS ' . $invoice->invoice_no,
+        ])->all());
+        $cogs = round($invoice->items->sum(fn ($i) => (float) $i->unit_cost * (float) $i->quantity), 2);
 
         $entries = [];
+        if ($cogs > 0) {
+            $entries[] = ['dr' => '501001', 'cr_id' => $location->inventoryAccountId(), 'amount' => $cogs, 'remarks' => 'POS COGS — ' . $invoice->invoice_no];
+        }
 
         if ($invoice->sub_total > 0 && $invoice->account_id) {
             $entries[] = [

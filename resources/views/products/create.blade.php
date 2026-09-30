@@ -59,8 +59,9 @@
               </select>
             </div>
             <div class="col-md-2">
-              <label>SKU *</label>
-              <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku') }}" required>
+              <label>SKU</label>
+              <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku') }}" placeholder="Auto: select category">
+              <small class="text-muted">Leave blank to auto-generate (CATEGORY-00001)</small>
               @error('sku')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2 mt-3">
@@ -99,7 +100,17 @@
               @error('weight')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2 mt-3">
-              <label>Consumption <small class="text-muted">(raw/pc)</small></label>
+              <label>Fabric <small class="text-muted">(raw item used)</small></label>
+              <select name="fabric_id" class="form-control select2-js">
+                <option value="">-- None --</option>
+                @foreach($fabrics as $f)
+                  <option value="{{ $f->id }}" {{ old('fabric_id') == $f->id ? 'selected' : '' }}>{{ $f->name }} ({{ $f->sku }})</option>
+                @endforeach
+              </select>
+              <small class="text-muted">Consumed at the CMT on FG receiving</small>
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>Consumption <small class="text-muted">(fabric per pc)</small></label>
               <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', '0') }}">
             </div>
             <div class="col-md-2 mt-3">
@@ -122,7 +133,7 @@
               @error('compare_at_price')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2 mt-3">
-              <label>Opening Stock</label>
+              <label>Opening Stock <small class="text-muted">(legacy)</small></label>
               <input type="number" step="any" name="opening_stock" class="form-control" value="{{ old('opening_stock', '0') }}">
             </div>
             <div class="col-md-2 mt-3">
@@ -225,7 +236,7 @@ $(document).ready(function () {
     let combos = buildCombinations(Object.entries(selectedMap));
     let tbody = $('#variationsTable tbody');
     tbody.empty();
-    let mainSku = $('#sku').val();
+    let mainSku = $('#sku').val() || $('#sku').attr('data-preview') || '';
 
     combos.forEach((combo, index) => {
       let label = combo.map(c => c.text).join('-');
@@ -258,6 +269,11 @@ $(document).ready(function () {
 
   $('select[name="category_id"]').on('change', function () {
     let categoryId = $(this).val();
+    if (categoryId) {
+      $.get("{{ route('products.next-sku', ':id') }}".replace(':id', categoryId), function (res) {
+        $('#sku').attr('placeholder', 'Auto: ' + res.sku).attr('data-preview', res.sku);
+      });
+    }
     let subCategorySelect = $('#subcategory_id');
     subCategorySelect.empty().append('<option value="">Loading...</option>');
     if (categoryId) {

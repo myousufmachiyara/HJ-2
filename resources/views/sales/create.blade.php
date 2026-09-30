@@ -31,11 +31,16 @@
             <div class="col-md-3 mb-3">
               <label>Customer</label>
               <select name="account_id" data-plugin-selecttwo class="form-control select2-js" required>
-                <option disabled>Select Customer</option>
+                <option value="" disabled {{ old('account_id') ? '' : 'selected' }}>Select Customer</option>
                 @foreach($customers as $c)
                   <option value="{{ $c->id }}">{{ $c->name }}</option>
                 @endforeach
               </select>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label>Dispatch From (Stock Location) <span class="text-danger">*</span></label>
+              @include('partials.location-select', ['name' => 'location_id', 'groups' => $locationGroups, 'selected' => old('location_id', $defaultLocationId), 'only' => ['warehouse', 'customer']])
+              <small class="text-muted">Own warehouse, or the marketplace holding the stock (e.g. Laam)</small>
             </div>
             <div class="col-md-2 mb-3">
               <label>Type <span class="text-danger">*</span></label>
@@ -530,12 +535,29 @@
   // Bulk Excel import (server-side, via Maatwebsite — see ItemsImportController)
   // ───────────────────────────────────────────────────────────────────────
 
+  // Template columns: Item Code (Barcode or SKU) | Quantity | Price | Discount %
+  // Price blank → product selling price. Columns are matched by header name,
+  // so marketplace exports can be pasted in as long as the headers match.
   function downloadImportTemplate() {
-    const headers = ['Item Code (Barcode)', 'Quantity', 'Unit ID', 'Price', 'Discount %'];
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-    ws['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+    const rows = [
+      ['Item Code (Barcode or SKU)', 'Quantity', 'Price', 'Discount %'],
+      ['KRT-00001-M', 2, 4500, 0],
+      ['KRT-00001-L', 1, '', 10],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 12 }];
+    const help = XLSX.utils.aoa_to_sheet([
+      ['How to fill'],
+      ['Item Code : variation SKU (e.g. KRT-00001-M), variation barcode, or product SKU/barcode'],
+      ['Quantity  : pieces sold (required)'],
+      ['Price     : sale price per piece — leave blank to use the product selling price'],
+      ['Discount %: optional line discount in percent'],
+      ['Delete the two example rows before uploading. Only the first sheet is read.'],
+    ]);
+    help['!cols'] = [{ wch: 90 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.utils.book_append_sheet(wb, help, 'Instructions');
     XLSX.writeFile(wb, 'sale_invoice_import_template.xlsx');
   }
 
@@ -559,7 +581,7 @@
     row.data('skipAutoLoad', true);
 
     const $productSelect = row.find('.product-select');
-    ensureOption($productSelect, item.product_id, item.sku || item.barcode || ('Product #' + item.product_id));
+    ensureOption($productSelect, item.product_id, item.name || item.sku || ('Product #' + item.product_id));
     $productSelect.val(item.product_id).trigger('change.select2');
 
     if (item.variation_id) {
@@ -587,7 +609,8 @@
     const priorQty = existing ? (parseFloat(row.find('.quantity').val()) || 0) : 0;
     $(`#qty_${i}`).val(priorQty + (parseFloat(item.quantity) || 0));
 
-    row.find('.product-code').val(item.barcode || '');
+    row.find('.product-code').val(item.barcode || item.sku || '');
+    row.removeData('skipAutoLoad');
 
     rowTotal(i);
   }
@@ -613,7 +636,9 @@
         }
         (res.items || []).forEach(importSaleInvoiceItem);
         if ((res.errors || []).length) {
-          alert('Import finished with issues:\n' + res.errors.join('\n'));
+          alert('Imported ' + (res.items || []).length + ' line(s). Skipped:\n' + res.errors.join('\n'));
+        } else {
+          alert('Imported ' + (res.items || []).length + ' line(s). Please review quantities and prices before saving.');
         }
       },
       error: function (xhr) {

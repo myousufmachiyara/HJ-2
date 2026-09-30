@@ -13,6 +13,7 @@ class ProductionReceiving extends Model
     protected $fillable = [
         'production_id',
         'vendor_id',
+        'location_id',
         'rec_date',
         'grn_no',
         'convance_charges',
@@ -28,6 +29,11 @@ class ProductionReceiving extends Model
     public function vendor()
     {
         return $this->belongsTo(ChartOfAccounts::class, 'vendor_id');
+    }
+
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function production()

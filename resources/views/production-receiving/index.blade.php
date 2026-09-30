@@ -13,7 +13,7 @@
       @endif
 
       <header class="card-header d-flex justify-content-between">
-        <h2 class="card-title">All Receivings</h2>
+        <h2 class="card-title">Finished Goods Receivings</h2>
         <div>
           <a href="{{ route('production_receiving.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> New Receiving</a>
         </div>
@@ -27,8 +27,9 @@
                 <th>#</th>
                 <th>GRN No</th>
                 <th>Receiving Date</th>
+                <th>Vendor</th>
                 <th>Total Qty</th>
-                <th>Amount</th>
+                @can('reports.accounts')<th>CMT Bill</th>@endcan
                 <th>Action</th>
               </tr>
             </thead>
@@ -38,11 +39,18 @@
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $rec->grn_no }}</td>
                 <td>{{ \Carbon\Carbon::parse($rec->rec_date)->format('d-m-Y') }}</td>
+                <td>{{ $rec->vendor->name ?? '-' }}</td>
                 <td>{{ $rec->details->sum('received_qty') }}</td>
-                <td>{{ number_format($rec->total_amount, 2) }}</td>
+                @can('reports.accounts')<td>{{ number_format($rec->total_amount, 2) }}</td>@endcan
                 <td>
                   <a href="{{ route('production_receiving.print', $rec->id) }}" target="_blank" class="text-success"><i class="fas fa-print"></i></a>
                   <a href="{{ route('production_receiving.edit', $rec->id) }}" class="text-primary"><i class="fa fa-edit"></i></a>
+                  @can('production_receiving.delete')
+                  <form action="{{ route('production_receiving.destroy', $rec->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Delete this receiving?')">
+                    @csrf @method('DELETE')
+                    <button type="submit" class="btn btn-link p-0 text-danger"><i class="fas fa-trash-alt"></i></button>
+                  </form>
+                  @endcan
                 </td>
               </tr>
               @endforeach

@@ -9,6 +9,8 @@ use App\Models\SaleInvoice;
 use App\Models\PurchaseInvoiceItem;
 use App\Models\ChartOfAccounts;
 use App\Models\Product;
+use App\Models\Location;
+use App\Services\Inventory;
 use App\Traits\PostsAccountingEntries;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -34,9 +36,12 @@ class SaleReturnController extends Controller
     public function create()
     {
         return view('sale_returns.create', [
-            'products'  => Product::get(),
-            'customers'  => ChartOfAccounts::where('account_type', 'customer')->get(),
-            'invoices'  => SaleInvoice::latest()->get(), // optional link to original
+            'products'          => Product::get(),
+            'customers'         => ChartOfAccounts::where('account_type', 'customer')->get(),
+            'invoices'          => SaleInvoice::latest()->get(), // optional link to original
+            'refundAccounts'    => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->orderBy('name')->get(),
+            'locationGroups'    => Location::grouped(),
+            'defaultLocationId' => Location::defaultId(),
         ]);
     }
 
@@ -44,6 +49,7 @@ class SaleReturnController extends Controller
     {
         $validated = $request->validate([
             'customer_id'          => 'required|exists:chart_of_accounts,id',
+            'location_id'          => 'required|exists:locations,id',
             'return_date'          => 'required|date',
             'sale_invoice_no'      => 'nullable|string|max:50',
             'remarks'              => 'nullable|string|max:500',
@@ -56,7 +62,7 @@ class SaleReturnController extends Controller
             'items'                => 'required|array|min:1',
             'items.*.product_id'   => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
-            'items.*.qty'          => 'required|numeric|min:1',
+            'items.*.qty'          => 'required|numeric|min:0.01',
             'items.*.price'        => 'required|numeric|min:0',
         ]);
 
@@ -71,6 +77,7 @@ class SaleReturnController extends Controller
             // Create Sale Return
             $return = SaleReturn::create([
                 'account_id'         => $validated['customer_id'],
+                'location_id'        => $validated['location_id'],
                 'return_date'        => $validated['return_date'],
                 'sale_invoice_no'    => $validated['sale_invoice_no'] ?? null,
                 'remarks'            => $validated['remarks'] ?? null,
@@ -93,6 +100,7 @@ class SaleReturnController extends Controller
                         'variation_id'   => $item['variation_id'] ?? null,
                         'qty'            => $item['qty'],
                         'price'          => $item['price'],
+                        'unit_cost'      => Inventory::avgCost((int) $item['product_id'], !empty($item['variation_id']) ? (int) $item['variation_id'] : null, $validated['return_date']),
                     ]);
 
                     Log::debug('[SaleReturn] Item created', [
@@ -144,10 +152,13 @@ class SaleReturnController extends Controller
         $return = SaleReturn::with(['items.product', 'items.variation'])->findOrFail($id);
 
         return view('sale_returns.edit', [
-            'return'    => $return,
-            'products'  => Product::get(),
-            'customers' => ChartOfAccounts::where('account_type', 'customer')->get(),
-            'invoices'  => SaleInvoice::latest()->get(),
+            'return'            => $return,
+            'products'          => Product::get(),
+            'customers'         => ChartOfAccounts::where('account_type', 'customer')->get(),
+            'invoices'          => SaleInvoice::latest()->get(),
+            'refundAccounts'    => ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->orderBy('name')->get(),
+            'locationGroups'    => Location::grouped(),
+            'defaultLocationId' => Location::defaultId(),
         ]);
     }
 
@@ -161,6 +172,7 @@ class SaleReturnController extends Controller
 
         $validated = $request->validate([
             'account_id'           => 'required|exists:chart_of_accounts,id',
+            'location_id'          => 'required|exists:locations,id',
             'return_date'          => 'required|date',
             'sale_invoice_no'      => 'nullable|string|max:50',
             'remarks'              => 'nullable|string|max:500',
@@ -173,7 +185,7 @@ class SaleReturnController extends Controller
             'items'                => 'required|array|min:1',
             'items.*.product_id'   => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
-            'items.*.qty'          => 'required|numeric|min:1',
+            'items.*.qty'          => 'required|numeric|min:0.01',
             'items.*.price'        => 'required|numeric|min:0',
         ]);
 
@@ -186,6 +198,7 @@ class SaleReturnController extends Controller
 
             $return->update([
                 'account_id'         => $validated['account_id'],
+                'location_id'        => $validated['location_id'],
                 'return_date'        => $validated['return_date'],
                 'sale_invoice_no'    => $validated['sale_invoice_no'] ?? null,
                 'remarks'            => $validated['remarks'] ?? null,
@@ -203,6 +216,7 @@ class SaleReturnController extends Controller
                     'variation_id'   => $item['variation_id'] ?? null,
                     'qty'            => $item['qty'],
                     'price'          => $item['price'],
+                    'unit_cost'      => Inventory::avgCost((int) $item['product_id'], !empty($item['variation_id']) ? (int) $item['variation_id'] : null, $validated['return_date']),
                 ]);
             }
 
@@ -238,7 +252,7 @@ class SaleReturnController extends Controller
 
     public function show($id)
     {
-        $return = SaleReturn::with('items.product','items.variation','account','saleInvoice')->findOrFail($id);
+        $return = SaleReturn::with('items.product', 'items.variation', 'customer', 'location')->findOrFail($id);
         return response()->json($return);
     }
 
@@ -250,12 +264,13 @@ class SaleReturnController extends Controller
 
             // ── Remove accounting entries before deleting the return ──────
             $this->deleteVoucherEntries($return);
+            Inventory::clear($return);
 
             $return->items()->delete();
             $return->delete();
 
             DB::commit();
-            return redirect()->route('sale_returns.index')->with('success','Sale return deleted.');
+            return redirect()->route('sale_return.index')->with('success','Sale return deleted.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[SaleReturn] Delete failed', ['error'=>$e->getMessage()]);
@@ -397,79 +412,50 @@ class SaleReturnController extends Controller
      * refund_amount is clamped to subTotal so a typo can't refund more than
      * the return is actually worth.
      */
+    /**
+     * Sale return:
+     *   DR Sales Return (401002)          CR Customer        ← receivable reduced
+     *   DR Sales Return (401002)          CR Cash/Bank       ← cash refunded (optional)
+     *   DR Stock @ return location        CR COGS (501001)   ← goods back in stock at avg cost
+     * Stock ledger: + qty at the return location.
+     */
     private function postSaleReturnEntries(SaleReturn $return): void
     {
-        if (!$return->account_id) return;
+        $location  = Location::find($return->location_id) ?? Location::default();
+        $subTotal  = round($return->items->sum(fn ($i) => (float) $i->qty * (float) $i->price), 2);
+        $totalCogs = round($return->items->sum(fn ($i) => (float) $i->qty * (float) $i->unit_cost), 2);
+        $returnAcc = \App\Models\ChartOfAccounts::where('account_code', '401002')->exists() ? '401002' : '401001';
 
-        $entries   = [];
-        $subTotal  = 0;
-        $totalCogs = 0;
+        $refundAmount = min((float) ($return->refund_amount ?? 0), $subTotal);
+        $arCredit     = round($subTotal - ($return->refund_account_id ? $refundAmount : 0), 2);
 
-        foreach ($return->items as $item) {
-            $lineTotal = $item->qty * $item->price;
-            $subTotal += $lineTotal;
-
-            $pq = PurchaseInvoiceItem::where('item_id', $item->product_id);
-            if ($item->variation_id) {
-                $hasVarSpecific = (clone $pq)->where('variation_id', $item->variation_id)->exists();
-                $pq = $hasVarSpecific
-                    ? $pq->where('variation_id', $item->variation_id)
-                    : $pq->whereNull('variation_id');
-            }
-
-            $agg     = (clone $pq)->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')->first();
-            $avgCost = ($agg && $agg->q > 0)
-                ? ($agg->v / $agg->q)
-                : (float) ($item->product->manufacturing_cost ?? 0);
-
-            $totalCogs += round($avgCost * $item->qty, 2);
-        }
-
-        // Clamp refund amount so it can never exceed the return's value
-        $refundAmount = min((float)($return->refund_amount ?? 0), $subTotal);
-        $arCredit     = round($subTotal - $refundAmount, 2);
-
-        // Reverse revenue, split across AR credit and/or cash refund as applicable
+        $entries = [];
         if ($arCredit > 0) {
-            $entries[] = [
-                'dr'      => '401001',
-                'cr_id'   => $return->account_id,
-                'amount'  => $arCredit,
-                'remarks' => $refundAmount > 0
-                    ? 'Sale return — revenue reversal (AR credit) #' . $return->id
-                    : 'Sale return — reverse revenue #' . $return->id,
-            ];
+            $entries[] = ['dr' => $returnAcc, 'cr_id' => $return->account_id, 'amount' => $arCredit,
+                          'remarks' => 'Sale return #' . $return->id . ' — customer credited'];
         }
-
         if ($refundAmount > 0 && $return->refund_account_id) {
-            $entries[] = [
-                'dr'      => '401001',
-                'cr_id'   => $return->refund_account_id,
-                'amount'  => $refundAmount,
-                'remarks' => 'Sale return — cash refund #' . $return->id,
-            ];
+            $entries[] = ['dr' => $returnAcc, 'cr_id' => $return->refund_account_id, 'amount' => $refundAmount,
+                          'remarks' => 'Sale return #' . $return->id . ' — cash refund'];
         }
-
-        // Reverse COGS: DR Stock in Hand / CR COGS
         if ($totalCogs > 0) {
-            $entries[] = [
-                'dr'      => '104001',
-                'cr'      => '501001',
-                'amount'  => $totalCogs,
-                'remarks' => 'Sale return — reverse COGS #' . $return->id,
-            ];
+            $entries[] = ['dr_id' => $location->inventoryAccountId(), 'cr' => '501001', 'amount' => $totalCogs,
+                          'remarks' => 'Sale return #' . $return->id . ' — stock back at ' . $location->name];
         }
-
-        if (empty($entries)) return;
 
         $this->syncVoucherEntries($return, 'sale_return', $return->return_date, $entries);
 
+        Inventory::sync($return, (string) $return->return_date, $return->items->map(fn ($i) => [
+            'product_id'   => $i->product_id,
+            'variation_id' => $i->variation_id,
+            'location_id'  => $location->id,
+            'qty'          => (float) $i->qty,
+            'unit_cost'    => (float) $i->unit_cost,
+            'remarks'      => 'Sale return #' . $return->id,
+        ])->all());
+
         Log::info('[SaleReturn] Accounting synced', [
-            'return_id'     => $return->id,
-            'sub_total'     => $subTotal,
-            'refund_amount' => $refundAmount,
-            'ar_credit'     => $arCredit,
-            'cogs'          => $totalCogs,
+            'return_id' => $return->id, 'sub_total' => $subTotal, 'refund' => $refundAmount, 'cogs' => $totalCogs,
         ]);
     }
 }

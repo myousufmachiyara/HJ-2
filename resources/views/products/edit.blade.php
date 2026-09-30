@@ -93,7 +93,17 @@
               <input type="number" step="any" name="weight" class="form-control" value="{{ old('weight', $product->weight) }}">
             </div>
             <div class="col-md-2 mt-3">
-              <label>Consumption <small class="text-muted">(raw/pc)</small></label>
+              <label>Fabric <small class="text-muted">(raw item used)</small></label>
+              <select name="fabric_id" class="form-control select2-js">
+                <option value="">-- None --</option>
+                @foreach($fabrics as $f)
+                  <option value="{{ $f->id }}" {{ old('fabric_id', $product->fabric_id) == $f->id ? 'selected' : '' }}>{{ $f->name }} ({{ $f->sku }})</option>
+                @endforeach
+              </select>
+              <small class="text-muted">Consumed at the CMT on FG receiving</small>
+            </div>
+            <div class="col-md-2 mt-3">
+              <label>Consumption <small class="text-muted">(fabric per pc)</small></label>
               <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', $product->consumption) }}">
             </div>
             <div class="col-md-2 mt-3">

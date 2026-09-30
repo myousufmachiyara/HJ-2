@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Stock Transfers')
+@section('title', 'Stock Movements')
 
 @section('content')
 <div class="row">
@@ -13,8 +13,8 @@
       @endif
 
       <header class="card-header d-flex justify-content-between align-items-center">
-        <h2 class="card-title">All Stock Transfers</h2>
-        <a href="{{ route('stock_transfer.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Stock Transfer</a>
+        <h2 class="card-title">All Stock Movements</h2>
+        <a href="{{ route('stock_transfer.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> New Movement</a>
       </header>
 
       <div class="card-body">
@@ -24,6 +24,7 @@
               <tr>
                 <th>#</th>
                 <th>Date</th>
+                <th>Type</th>
                 <th>From Location</th>
                 <th>To Location</th>
                 <th>Total Qty</th>
@@ -34,7 +35,8 @@
             @foreach ($transfers as $transfer)
             <tr>
                 <td>{{ $loop->iteration }}</td>
-                <td>{{ $transfer->date }}</td>
+                <td>{{ \Carbon\Carbon::parse($transfer->date)->format('d-M-Y') }}</td>
+                <td>{{ $transfer->typeLabel() }}</td>
                 <td>{{ $transfer->fromLocation->name ?? '-' }}</td>
                 <td>{{ $transfer->toLocation->name ?? '-' }}</td>
                 <td>{{ $transfer->details->sum('quantity') }}</td>

@@ -72,7 +72,7 @@ class PurchaseReturnController extends Controller
             $this->saveItems($return, $request->items ?? []);
             $this->saveAttachments($return, $request);
 
-            $return->loadMissing('items');
+            $return->load('items');
             $this->postPurchaseReturnEntries($return);
 
             DB::commit();
@@ -133,7 +133,7 @@ class PurchaseReturnController extends Controller
             $this->saveItems($return, $request->items ?? []);
             $this->saveAttachments($return, $request);
 
-            $return->loadMissing('items');
+            $return->load('items');
             $this->postPurchaseReturnEntries($return);
 
             DB::commit();
@@ -154,6 +154,7 @@ class PurchaseReturnController extends Controller
         try {
             $return = PurchaseReturn::with('attachments')->findOrFail($id);
             $this->deleteVoucherEntries($return);
+            \App\Services\Inventory::clear($return);
             foreach ($return->attachments as $attachment) {
                 Storage::disk('public')->delete($attachment->file_path);
             }
@@ -317,6 +318,9 @@ class PurchaseReturnController extends Controller
         $conveyance = (float)($return->convance_charges ?? 0);
         $discount   = (float)($return->bill_discount    ?? 0);
 
+        // Goods leave the default warehouse (its stock account — normally 104001 Stock in Hand)
+        $warehouse = \App\Models\Location::default();
+
         $this->syncVoucherEntries(
             $return,
             'purchase_return',
@@ -324,7 +328,7 @@ class PurchaseReturnController extends Controller
             [
                 [
                     'dr_id'   => $return->vendor_id,
-                    'cr'      => '104001',
+                    'cr_id'   => $warehouse->inventoryAccountId(),
                     'amount'  => $itemsTotal,
                     'remarks' => 'Goods returned to vendor',
                 ],
@@ -342,6 +346,15 @@ class PurchaseReturnController extends Controller
                 ],
             ]
         );
+
+        \App\Services\Inventory::sync($return, $return->return_date, $return->items->map(fn ($i) => [
+            'product_id'   => $i->item_id,
+            'variation_id' => $i->variation_id,
+            'location_id'  => $warehouse->id,
+            'qty'          => -1 * (float) $i->quantity,
+            'unit_cost'    => (float) $i->price,
+            'remarks'      => 'Purchase return ' . ($return->return_no ?? $return->id),
+        ])->all());
 
         Log::info('[PurchaseReturn] Accounting synced', [
             'id'         => $return->id,

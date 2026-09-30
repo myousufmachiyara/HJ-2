@@ -123,7 +123,7 @@ class COAController extends Controller
 
             // Ensure a stock-holder location exists for this account when it's a customer.
             // Safe for all account types — non-customers simply return null and do nothing.
-            Location::syncForCustomer($account);
+            Location::syncForAccount($account);
 
             return redirect()->route('coa.index')
                 ->with('success', 'Account created successfully.');
@@ -194,7 +194,7 @@ class COAController extends Controller
 
             // Keep the customer's stock location in sync (created if newly a customer,
             // renamed if the account name changed). refresh() so the sync sees new values.
-            Location::syncForCustomer($account->refresh());
+            Location::syncForAccount($account->refresh());
 
             return redirect()->route('coa.index')
                 ->with('success', 'Account updated successfully.');

@@ -8,6 +8,9 @@ use App\Models\SalePayment;
 use App\Models\Product;
 use App\Models\MeasurementUnit;
 use App\Models\ChartOfAccounts;
+use App\Models\Location;
+use App\Services\Inventory;
+use Illuminate\Validation\ValidationException;
 use App\Traits\PostsAccountingEntries;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +23,7 @@ class SaleInvoiceController extends Controller
 
     public function index()
     {
-        $invoices = SaleInvoice::with(['account', 'items', 'payments'])
+        $invoices = SaleInvoice::with(['account', 'location', 'items', 'payments'])
             ->latest()->get();
         return view('sales.index', compact('invoices'));
     }
@@ -31,14 +34,17 @@ class SaleInvoiceController extends Controller
         $customers = ChartOfAccounts::where('account_type', 'customer')->get();
         $accounts  = ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get();
         $units     = MeasurementUnit::all();
-        return view('sales.create', compact('products', 'customers', 'accounts', 'units'));
+        $locationGroups    = Location::grouped();
+        $defaultLocationId = Location::defaultId();
+        return view('sales.create', compact('products', 'customers', 'accounts', 'units', 'locationGroups', 'defaultLocationId'));
     }
 
     public function store(Request $request)
     {
         $request->validate([
             'date'                    => 'required|date',
-            'account_id'              => 'nullable|exists:chart_of_accounts,id',
+            'account_id'              => 'required|exists:chart_of_accounts,id',
+            'location_id'             => 'required|exists:locations,id',
             'type'                    => 'required|in:cash,credit',
             'payment_terms'           => 'nullable|string',
             'ref_no'                  => 'nullable|string|max:100',
@@ -59,6 +65,8 @@ class SaleInvoiceController extends Controller
             'payment_reference'       => 'nullable|string|max:100',
         ]);
 
+        $this->assertStock($request);
+
         DB::beginTransaction();
         try {
             $invoiceNo = 'SI-' . str_pad(SaleInvoice::withTrashed()->count() + 1, 5, '0', STR_PAD_LEFT);
@@ -71,6 +79,7 @@ class SaleInvoiceController extends Controller
                 'invoice_no'       => $invoiceNo,
                 'date'             => $request->date,
                 'account_id'       => $request->account_id,
+                'location_id'      => $request->location_id,
                 'type'             => $request->type,
                 'payment_terms'    => $request->payment_terms,
                 'ref_no'           => $request->ref_no,
@@ -121,12 +130,14 @@ class SaleInvoiceController extends Controller
         $customers = ChartOfAccounts::where('account_type', 'customer')->get();
         $accounts  = ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get();
         $units     = MeasurementUnit::all();
-        return view('sales.edit', compact('invoice', 'products', 'customers', 'accounts', 'units'));
+        $locationGroups    = Location::grouped();
+        $defaultLocationId = Location::defaultId();
+        return view('sales.edit', compact('invoice', 'products', 'customers', 'accounts', 'units', 'locationGroups', 'defaultLocationId'));
     }
 
     public function show($id)
     {
-        $invoice  = SaleInvoice::with(['account', 'items.product', 'items.variation', 'items.measurementUnit', 'payments.account'])->findOrFail($id);
+        $invoice  = SaleInvoice::with(['account', 'location', 'items.product', 'items.variation', 'items.measurementUnit', 'payments.account'])->findOrFail($id);
         $accounts = ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])->get();
         return view('sales.show', compact('invoice', 'accounts'));
     }
@@ -135,7 +146,8 @@ class SaleInvoiceController extends Controller
     {
         $request->validate([
             'date'                 => 'required|date',
-            'account_id'           => 'nullable|exists:chart_of_accounts,id',
+            'account_id'           => 'required|exists:chart_of_accounts,id',
+            'location_id'          => 'required|exists:locations,id',
             'type'                 => 'required|in:cash,credit',
             'payment_terms'        => 'nullable|string',
             'ref_no'               => 'nullable|string|max:100',
@@ -151,6 +163,8 @@ class SaleInvoiceController extends Controller
             'items.*.discount'     => 'nullable|numeric|min:0|max:100',
         ]);
 
+        $this->assertStock($request, SaleInvoice::findOrFail($id));
+
         DB::beginTransaction();
         try {
             $invoice    = SaleInvoice::findOrFail($id);
@@ -162,6 +176,7 @@ class SaleInvoiceController extends Controller
             $invoice->update([
                 'date'             => $request->date,
                 'account_id'       => $request->account_id,
+                'location_id'      => $request->location_id,
                 'type'             => $request->type,
                 'payment_terms'    => $request->payment_terms,
                 'ref_no'           => $request->ref_no,
@@ -198,6 +213,7 @@ class SaleInvoiceController extends Controller
         try {
             $invoice = SaleInvoice::findOrFail($id);
             $this->deleteVoucherEntries($invoice);
+            Inventory::clear($invoice);
             $invoice->items()->delete();
             $invoice->payments()->delete();
             $invoice->delete();
@@ -308,7 +324,7 @@ class SaleInvoiceController extends Controller
     public function print($id)
     {
         $invoice = SaleInvoice::with([
-            'account', 'items.product', 'items.variation', 'items.measurementUnit', 'payments.account',
+            'account', 'location', 'items.product', 'items.variation', 'items.measurementUnit', 'payments.account',
         ])->findOrFail($id);
 
         $pdf = new \TCPDF();
@@ -336,6 +352,7 @@ class SaleInvoiceController extends Controller
                 <tr><td><b>Invoice #</b></td><td>' . $invoice->invoice_no . '</td></tr>
                 <tr><td><b>Date</b></td><td>' . Carbon::parse($invoice->date)->format('d/m/Y') . '</td></tr>
                 <tr><td><b>Customer</b></td><td>' . ($invoice->account->name ?? 'Walk-in') . '</td></tr>
+                <tr><td><b>Dispatch From</b></td><td>' . ($invoice->location->name ?? '-') . '</td></tr>
                 <tr><td><b>Type</b></td><td>' . ucfirst($invoice->type) . '</td></tr>
                 <tr><td><b>Status</b></td><td><span style="color:' . $statusColor . '">' . ucfirst($invoice->payment_status) . '</span></td></tr>
             </table>',
@@ -423,12 +440,22 @@ class SaleInvoiceController extends Controller
         return round($total, 2);
     }
 
+    private function assertStock(Request $request, ?SaleInvoice $existing = null): void
+    {
+        Inventory::assertAvailable((int) $request->location_id, collect($request->items ?? [])->map(fn ($i) => [
+            'product_id'   => $i['product_id'] ?? null,
+            'variation_id' => $i['variation_id'] ?? null,
+            'qty'          => (float) ($i['quantity'] ?? 0),
+        ])->all(), $existing);
+    }
+
     private function saveItems(SaleInvoice $invoice, array $items): void
     {
         $productNames = Product::pluck('name', 'id');
         foreach ($items as $item) {
             if (empty($item['product_id'])) continue;
             $invoice->items()->create([
+                'unit_cost'    => Inventory::avgCost((int) $item['product_id'], !empty($item['variation_id']) ? (int) $item['variation_id'] : null, $invoice->date),
                 'product_id'   => $item['product_id'],
                 'variation_id' => $item['variation_id'] ?? null,
                 'item_name'    => $productNames[$item['product_id']] ?? null,
@@ -465,7 +492,8 @@ class SaleInvoiceController extends Controller
      *   DR  Customer (AR)              ← net_amount receivable
      *   CR  Sales Revenue (401001)     ← sub total
      *   CR  Sales Discount (401003)    ← bill discount
-     *   DR  Conveyance (502001)        ← if charged to us
+     *   DR  COGS (501001)              ← avg cost of items
+     *   CR  Stock @ dispatch location  ← warehouse or marketplace holding the stock
      *
      * Per payment received:
      *   DR  Cash/Bank Account          ← payment received
@@ -497,47 +525,29 @@ class SaleInvoiceController extends Controller
             ];
         }
 
-        // ── Entry 3: COGS DR / Stock in Hand CR ───────────────────────────
-        // Calculated per line item using average purchase cost for that
-        // specific variation (or product-level if no variation).
-        $totalCogs = 0;
-
-        foreach ($invoice->items as $item) {
-            $productId   = $item->product_id;
-            $variationId = $item->variation_id;
-            $qty         = (float) $item->quantity;
-
-            // Build purchase cost query
-            $pq = \App\Models\PurchaseInvoiceItem::where('item_id', $productId);
-
-            if ($variationId) {
-                $hasVarSpecific = (clone $pq)->where('variation_id', $variationId)->exists();
-
-                if ($hasVarSpecific) {
-                    $pq = $pq->where('variation_id', $variationId);
-                } else {
-                    // Fall back to null-variation purchases for this product
-                    $pq = $pq->whereNull('variation_id');
-                }
-            }
-            // If no variation at all — query runs on item_id only (correct)
-
-            $agg     = (clone $pq)->selectRaw('SUM(quantity * price) as v, SUM(quantity) as q')->first();
-            $avgCost = ($agg && $agg->q > 0)
-                ? ($agg->v / $agg->q)
-                : (float) ($item->product->manufacturing_cost ?? 0); // fallback for manufactured items
-
-            $totalCogs += round($avgCost * $qty, 2);
-        }
+        // ── Entry 3: COGS DR / Stock @ dispatch location CR ───────────────
+        // Uses the weighted-average cost frozen on each line at save time.
+        $location  = Location::find($invoice->location_id) ?? Location::default();
+        $totalCogs = round($invoice->items->sum(fn ($i) => (float) $i->unit_cost * (float) $i->quantity), 2);
 
         if ($totalCogs > 0) {
             $entries[] = [
-                'dr'      => '501001', // Cost of Goods Sold
-                'cr'      => '104001', // Stock in Hand
+                'dr'      => '501001',                          // Cost of Goods Sold
+                'cr_id'   => $location->inventoryAccountId(),  // Stock @ location
                 'amount'  => $totalCogs,
-                'remarks' => 'COGS — ' . $invoice->invoice_no,
+                'remarks' => 'COGS (' . $location->name . ') — ' . $invoice->invoice_no,
             ];
         }
+
+        // Stock leaves the dispatch location
+        Inventory::sync($invoice, (string) $invoice->date, $invoice->items->map(fn ($i) => [
+            'product_id'   => $i->product_id,
+            'variation_id' => $i->variation_id,
+            'location_id'  => $location->id,
+            'qty'          => -1 * (float) $i->quantity,
+            'unit_cost'    => (float) $i->unit_cost,
+            'remarks'      => 'Sale ' . $invoice->invoice_no,
+        ])->all());
 
         // ── Entry 4: Each payment received — Cash/Bank DR / Customer CR ──
         foreach ($invoice->payments as $payment) {

@@ -20,7 +20,7 @@
     <li class="nav-item">
       <a class="nav-link {{ $tab=='LOC'?'active':'' }}"
          href="{{ route('reports.inventory') }}?tab=LOC">
-        <i class="fas fa-map-marker-alt me-1"></i> Location / Customer Stock
+        <i class="fas fa-map-marker-alt me-1"></i> Stock by Location
       </a>
     </li>
     <li class="nav-item">
@@ -338,30 +338,28 @@
       </div>
     @endif
 
-    {{-- ── NEW: LOCATION / CUSTOMER STOCK ──────────────────────── --}}
+    {{-- ── LOCATION STOCK (from stock ledger) ─────────────────── --}}
     @if($tab === 'LOC')
       <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
         <input type="hidden" name="tab" value="LOC">
         <div class="row g-2 align-items-end">
           <div class="col-md-5">
-            <label>Location / Customer</label>
+            <label>Location (Warehouse / Customer / Vendor)</label>
             <select name="stock_location_id" class="form-control select2-js" onchange="this.form.submit()">
-              @foreach($locations->whereNull('chart_of_account_id') as $loc)
-                <option value="{{ $loc->id }}" {{ $selectedLocationId == $loc->id ? 'selected' : '' }}>
-                  🏭 {{ $loc->name }}{{ $loc->is_default ? ' (Default Warehouse)' : '' }}
-                </option>
-              @endforeach
-              @php $customerLocs = $locations->whereNotNull('chart_of_account_id'); @endphp
-              @if($customerLocs->count())
-                <optgroup label="Customers">
-                  @foreach($customerLocs as $loc)
+              @foreach($locations->groupBy(fn($l) => $l->typeLabel()) as $group => $locs)
+                <optgroup label="{{ $group }}">
+                  @foreach($locs as $loc)
                     <option value="{{ $loc->id }}" {{ $selectedLocationId == $loc->id ? 'selected' : '' }}>
-                      👤 {{ $loc->name }}
+                      {{ $loc->name }}{{ $loc->is_default ? ' (Default)' : '' }}
                     </option>
                   @endforeach
                 </optgroup>
-              @endif
+              @endforeach
             </select>
+          </div>
+          <div class="col-md-2">
+            <label>As of</label>
+            <input type="date" name="to_date" class="form-control" value="{{ $to }}">
           </div>
           <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">View</button>
@@ -370,42 +368,32 @@
       </form>
 
       @php
-        $selLoc     = $locations->firstWhere('id', $selectedLocationId);
-        $isCustomer = $selLoc && $selLoc->chart_of_account_id;
+        $selLoc      = $locations->firstWhere('id', $selectedLocationId);
         $locTotalQty = $locationStock->sum('quantity');
+        $locTotalVal = $locationStock->sum('value');
       @endphp
 
-      <div class="alert {{ $isCustomer ? 'alert-warning' : 'alert-info' }} mb-3">
-        <i class="fas {{ $isCustomer ? 'fa-user' : 'fa-warehouse' }} me-1"></i>
-        @if($isCustomer)
-          Stock currently <strong>held by {{ $selLoc->name }}</strong> —
-          delivered via challan, reduced by their sale invoices, increased by their sale returns.
-        @elseif($selLoc && $selLoc->is_default)
-          Stock in the <strong>default warehouse</strong> ({{ $selLoc->name }}) —
-          all stock not transferred out to another location or customer.
-        @elseif($selLoc)
-          Stock in <strong>{{ $selLoc->name }}</strong> — net of transfers in and out.
+      <div class="alert alert-info mb-3">
+        <i class="fas fa-map-marker-alt me-1"></i>
+        @if($selLoc)
+          Stock at <strong>{{ $selLoc->name }}</strong> ({{ $selLoc->typeLabel() }}) as of {{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}:
+          purchases dropped here, FG received, fabric consumed, stock movements in/out, sales & returns at this location and stock adjustments.
+          Negative rows mean more went out than the software knows came in — fix with a Stock Adjustment (Physical Count).
         @else
           Select a location to view its stock.
         @endif
       </div>
 
       @if($selLoc)
-        <div class="row mb-3">
-          <div class="col text-end">
-            <span>Total Qty at this location: <strong class="fs-5 {{ $locTotalQty < 0 ? 'text-danger' : 'text-primary' }}">
-              {{ number_format($locTotalQty, 2) }}
-            </strong></span>
-          </div>
-        </div>
-
         <div class="table-responsive">
           <table class="table table-bordered table-striped table-sm" id="locTable">
             <thead class="table-light">
               <tr>
                 <th>Product</th>
                 <th>Variation</th>
-                <th class="text-end">Quantity Held</th>
+                <th class="text-end">Quantity</th>
+                <th class="text-end">Avg Cost</th>
+                <th class="text-end">Value</th>
               </tr>
             </thead>
             <tbody>
@@ -413,24 +401,21 @@
                 <tr class="{{ $row['quantity'] < 0 ? 'table-danger' : '' }}">
                   <td>{{ $row['product'] }}</td>
                   <td>{{ $row['variation'] ?? '—' }}</td>
-                  <td class="text-end fw-bold {{ $row['quantity'] < 0 ? 'text-danger' : '' }}">
-                    {{ number_format($row['quantity'], 2) }}
-                  </td>
+                  <td class="text-end fw-bold {{ $row['quantity'] < 0 ? 'text-danger' : '' }}">{{ number_format($row['quantity'], 2) }}</td>
+                  <td class="text-end">{{ number_format($row['unit_cost'] ?? 0, 2) }}</td>
+                  <td class="text-end">{{ number_format($row['value'] ?? 0, 2) }}</td>
                 </tr>
               @empty
-                <tr><td colspan="3" class="text-center text-muted py-3">
-                  No stock at this location.
-                  @if($isCustomer) This customer isn't currently holding any goods. @endif
-                </td></tr>
+                <tr><td colspan="5" class="text-center text-muted py-3">No stock at this location.</td></tr>
               @endforelse
             </tbody>
             @if($locationStock->count())
               <tfoot class="table-light fw-bold">
                 <tr>
                   <td colspan="2" class="text-end">Total</td>
-                  <td class="text-end {{ $locTotalQty < 0 ? 'text-danger' : 'text-primary' }}">
-                    {{ number_format($locTotalQty, 2) }}
-                  </td>
+                  <td class="text-end {{ $locTotalQty < 0 ? 'text-danger' : 'text-primary' }}">{{ number_format($locTotalQty, 2) }}</td>
+                  <td></td>
+                  <td class="text-end">{{ number_format($locTotalVal, 2) }}</td>
                 </tr>
               </tfoot>
             @endif

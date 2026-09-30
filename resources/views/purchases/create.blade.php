@@ -31,6 +31,12 @@
               </select>
             </div>
 
+            <div class="col-md-3 mb-3">
+              <label>Drop-off Location <span class="text-danger">*</span></label>
+              @include('partials.location-select', ['name' => 'dropoff_location_id', 'groups' => $locationGroups, 'selected' => old('dropoff_location_id', $defaultLocationId), 'only' => ['warehouse', 'vendor']])
+              <small class="text-muted">Our warehouse, or the CMT vendor the fabric was delivered to</small>
+            </div>
+
             <div class="col-md-2 mb-3">
               <label>Payment Terms</label>
               <input type="text" name="payment_terms" class="form-control">

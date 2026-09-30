@@ -2,159 +2,123 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ChartOfAccounts;
+use App\Models\Location;
+use App\Models\Product;
 use App\Models\ProductionReceiving;
 use App\Models\ProductionReceivingDetail;
-use App\Models\Production;
-use App\Models\Product;
-use App\Models\ChartOfAccounts;
+use App\Services\Inventory;
 use App\Traits\PostsAccountingEntries;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
 
+/**
+ * Finished Goods Receiving (GRN) from a CMT vendor.
+ *
+ * Staff only enter: date, vendor, item, variation, qty.
+ * The system then (behind the scenes):
+ *   - values each line at the product's CMT cost × qty       → CMT vendor bill
+ *   - consumes fabric at that vendor: qty × product consumption of the product's fabric
+ *   - adds the FG qty to the default warehouse
+ *
+ * Accounting
+ *   DR Stock @ Warehouse   CR CMT Vendor              (CMT / making charges)
+ *   DR Stock @ Warehouse   CR Stock @ Vendor (fabric)  (fabric moved into FG cost)
+ */
 class ProductionReceivingController extends Controller
 {
     use PostsAccountingEntries;
 
     public function index()
     {
-        $receivings = ProductionReceiving::with(['vendor', 'production', 'details'])
+        $receivings = ProductionReceiving::with(['vendor', 'details'])
             ->orderBy('id', 'desc')->get()
             ->map(function ($r) {
-                $r->total_amount = $r->details->sum(fn($d) => $d->manufacturing_cost * $d->received_qty);
+                $r->total_amount = $r->details->sum(fn ($d) => $d->manufacturing_cost * $d->received_qty);
                 return $r;
             });
+
         return view('production-receiving.index', compact('receivings'));
     }
 
-    public function create(Request $request)
+    public function create()
     {
-        $productions          = Production::with('vendor')->orderBy('id', 'desc')->get();
-        $products             = Product::orderBy('name')->where('item_type','fg')->get();
-        $accounts             = ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get();
-        $selectedProductionId = $request->query('id');
-
-        return view('production-receiving.create', compact('productions', 'products', 'selectedProductionId', 'accounts'));
+        return view('production-receiving.create', $this->formData());
     }
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'production_id'                     => 'nullable|exists:productions,id',
-            'vendor_id'                         => 'required|exists:chart_of_accounts,id',
-            'rec_date'                          => 'required|date',
-            'item_details'                      => 'required|array|min:1',
-            'item_details.*.product_id'         => 'required|exists:products,id',
-            'item_details.*.variation_id'       => 'nullable|exists:product_variations,id',
-            'item_details.*.received_qty'       => 'required|numeric|min:0.01',
-            'item_details.*.manufacturing_cost' => 'required|numeric|min:0',
-            'item_details.*.remarks'            => 'nullable|string',
-            'convance_charges'                  => 'required|numeric|min:0',
-            'bill_discount'                     => 'required|numeric|min:0',
-        ]);
+        $validated = $this->validateRequest($request);
 
         DB::beginTransaction();
         try {
-            $grn_no = 'GRN-' . str_pad(ProductionReceiving::withTrashed()->count() + 1, 5, '0', STR_PAD_LEFT);
-
             $receiving = ProductionReceiving::create([
-                'production_id'    => $validated['production_id'] ?? null,
                 'vendor_id'        => $validated['vendor_id'],
+                'location_id'      => Location::defaultId(),
                 'rec_date'         => $validated['rec_date'],
-                'grn_no'           => $grn_no,
-                'convance_charges' => $validated['convance_charges'],
-                'bill_discount'    => $validated['bill_discount'],
+                'grn_no'           => $this->nextGrnNo(),
+                'convance_charges' => 0,
+                'bill_discount'    => 0,
                 'received_by'      => auth()->id(),
             ]);
 
-            foreach ($validated['item_details'] as $detail) {
-                ProductionReceivingDetail::create([
-                    'production_receiving_id' => $receiving->id,
-                    'product_id'              => $detail['product_id'],
-                    'variation_id'            => $detail['variation_id'] ?? null,
-                    'manufacturing_cost'      => $detail['manufacturing_cost'],
-                    'received_qty'            => $detail['received_qty'],
-                    'remarks'                 => $detail['remarks'] ?? null,
-                ]);
-            }
-
-            $receiving->load('details');
-            $this->postProductionReceivingEntries($receiving);
+            $missingCost = $this->saveDetails($receiving, $validated['item_details']);
+            $this->post($receiving->fresh('details'));
 
             DB::commit();
-            Log::info('[ProdReceiving] Created', ['id' => $receiving->id]);
-            return redirect()->route('production_receiving.index')->with('success', 'Production receiving created successfully!');
+            Log::info('[FGReceiving] Created', ['id' => $receiving->id]);
+
+            $redirect = redirect()->route('production_receiving.index')
+                ->with('success', 'Receiving ' . $receiving->grn_no . ' saved.');
+            return $missingCost
+                ? $redirect->with('error', 'Note: CMT cost is not set on: ' . implode(', ', $missingCost) . '. Set it in Products and re-save this GRN so the vendor bill is correct.')
+                : $redirect;
 
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('[ProdReceiving] Store failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error('[FGReceiving] Store failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return back()->withInput()->with('error', 'Failed to save receiving: ' . $e->getMessage());
         }
     }
 
     public function edit($id)
     {
-        $receiving   = ProductionReceiving::with(['details.product', 'details.variation'])->findOrFail($id);
-        $productions = Production::with('vendor')->orderBy('id', 'desc')->get();
-        $products    = Product::orderBy('name')->get();
-        $accounts    = ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get();
-        return view('production-receiving.edit', compact('receiving', 'productions', 'products', 'accounts'));
+        $receiving = ProductionReceiving::with(['details.product', 'details.variation'])->findOrFail($id);
+        return view('production-receiving.edit', $this->formData() + compact('receiving'));
     }
 
     public function update(Request $request, $id)
     {
-        $validated = $request->validate([
-            'production_id'                     => 'nullable|exists:productions,id',
-            'vendor_id'                         => 'required|exists:chart_of_accounts,id',
-            'rec_date'                          => 'required|date',
-            'item_details'                      => 'required|array|min:1',
-            'item_details.*.product_id'         => 'required|exists:products,id',
-            'item_details.*.variation_id'       => 'nullable|exists:product_variations,id',
-            'item_details.*.received_qty'       => 'required|numeric|min:0.01',
-            'item_details.*.manufacturing_cost' => 'required|numeric|min:0',
-            'item_details.*.remarks'            => 'nullable|string',
-            'convance_charges'                  => 'required|numeric|min:0',
-            'bill_discount'                     => 'required|numeric|min:0',
-        ]);
+        $validated = $this->validateRequest($request);
 
         DB::beginTransaction();
         try {
             $receiving = ProductionReceiving::findOrFail($id);
+            // production_id / conveyance / discount are kept as they are (not on the simplified form)
             $receiving->update([
-                'production_id'    => $validated['production_id'] ?? null,
-                'vendor_id'        => $validated['vendor_id'],
-                'rec_date'         => $validated['rec_date'],
-                'convance_charges' => $validated['convance_charges'],
-                'bill_discount'    => $validated['bill_discount'],
+                'vendor_id'   => $validated['vendor_id'],
+                'rec_date'    => $validated['rec_date'],
+                'location_id' => $receiving->location_id ?? Location::defaultId(),
             ]);
 
             $receiving->details()->delete();
-            $detailData = [];
-            foreach ($validated['item_details'] as $detail) {
-                $detailData[] = [
-                    'production_receiving_id' => $receiving->id,
-                    'product_id'              => $detail['product_id'],
-                    'variation_id'            => $detail['variation_id'] ?? null,
-                    'manufacturing_cost'      => $detail['manufacturing_cost'],
-                    'received_qty'            => $detail['received_qty'],
-                    'remarks'                 => $detail['remarks'] ?? null,
-                    'created_at'              => now(),
-                    'updated_at'              => now(),
-                ];
-            }
-            ProductionReceivingDetail::insert($detailData);
-
-            $receiving->load('details');
-            $this->postProductionReceivingEntries($receiving);
+            $missingCost = $this->saveDetails($receiving, $validated['item_details']);
+            $this->post($receiving->fresh('details'));
 
             DB::commit();
-            Log::info('[ProdReceiving] Updated', ['id' => $id]);
-            return redirect()->route('production_receiving.index')->with('success', 'Production receiving updated successfully!');
+            Log::info('[FGReceiving] Updated', ['id' => $id]);
+
+            $redirect = redirect()->route('production_receiving.index')
+                ->with('success', 'Receiving ' . $receiving->grn_no . ' updated.');
+            return $missingCost
+                ? $redirect->with('error', 'Note: CMT cost is not set on: ' . implode(', ', $missingCost) . '.')
+                : $redirect;
 
         } catch (\Throwable $e) {
             DB::rollBack();
-            Log::error('[ProdReceiving] Update failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error('[FGReceiving] Update failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return back()->withInput()->with('error', 'Failed to update receiving: ' . $e->getMessage());
         }
     }
@@ -165,31 +129,30 @@ class ProductionReceivingController extends Controller
         try {
             $receiving = ProductionReceiving::findOrFail($id);
             $this->deleteVoucherEntries($receiving);
+            Inventory::clear($receiving);
             $receiving->details()->delete();
             $receiving->delete();
             DB::commit();
-            return back()->with('success', 'Production receiving deleted.');
+            return back()->with('success', 'Receiving deleted.');
         } catch (\Throwable $e) {
             DB::rollBack();
             return back()->with('error', 'Delete failed: ' . $e->getMessage());
         }
     }
 
+    /** GRN print — quantities only (no costing), as used by warehouse staff. */
     public function print($id)
     {
         $receiving = ProductionReceiving::with([
-            'vendor',
-            'production.vendor',
-            'details.product.measurementUnit',
-            'details.variation',
+            'vendor', 'details.product.measurementUnit', 'details.variation',
         ])->findOrFail($id);
 
         $pdf = new \TCPDF();
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
-        $pdf->SetCreator('Jild');
-        $pdf->SetAuthor('Jild');
-        $pdf->SetTitle('Production Receiving #' . $receiving->id);
+        $pdf->SetCreator('HJ');
+        $pdf->SetAuthor('HJ');
+        $pdf->SetTitle('GRN ' . $receiving->grn_no);
         $pdf->SetMargins(10, 10, 10);
         $pdf->AddPage();
         $pdf->setCellPadding(1.5);
@@ -200,117 +163,164 @@ class ProductionReceivingController extends Controller
         $pdf->SetXY(130, 12);
         $pdf->writeHTML('
             <table border="1" cellpadding="4" style="font-size:10px;line-height:14px;border-collapse:collapse;">
-                <tr><td><b>GRN #</b></td><td>' . ($receiving->grn_no ?? $receiving->id) . '</td></tr>
+                <tr><td><b>GRN #</b></td><td>' . e($receiving->grn_no) . '</td></tr>
                 <tr><td><b>Date</b></td><td>' . Carbon::parse($receiving->rec_date)->format('d/m/Y') . '</td></tr>
-                <tr><td><b>Production #</b></td><td>' . ($receiving->production_id ? '#' . $receiving->production_id : '-') . '</td></tr>
-                <tr><td><b>Vendor</b></td><td>' . ($receiving->vendor->name ?? $receiving->production?->vendor->name ?? '-') . '</td></tr>
-            </table>',
-        false, false, false, false, '');
+                <tr><td><b>Vendor</b></td><td>' . e($receiving->vendor->name ?? '-') . '</td></tr>
+            </table>', false, false, false, false, '');
 
         $pdf->Line(60, 52.25, 200, 52.25);
-
         $pdf->SetXY(10, 48);
         $pdf->SetFillColor(23, 54, 93);
         $pdf->SetTextColor(255, 255, 255);
         $pdf->SetFont('helvetica', '', 12);
-        $pdf->Cell(55, 8, 'Production Receiving', 0, 1, 'C', 1);
+        $pdf->Cell(55, 8, 'Goods Receiving Note', 0, 1, 'C', 1);
         $pdf->SetTextColor(0, 0, 0);
         $pdf->Ln(5);
 
-        $html = '
-        <table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
+        $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
             <tr style="background-color:#f5f5f5;font-weight:bold;">
-                <th width="6%">S.No</th>
-                <th width="24%">Item</th>
-                <th width="22%">Variation</th>
-                <th width="12%">M.Cost</th>
-                <th width="12%">Qty</th>
-                <th width="12%">Total</th>
-                <th width="12%">Remarks</th>
+                <th width="8%">S.No</th><th width="42%">Item</th><th width="30%">Variation</th><th width="20%">Qty</th>
             </tr>';
-
-        $count      = 0;
-        $grandTotal = 0;
-
-        foreach ($receiving->details as $detail) {
-            $count++;
-            $rowTotal    = $detail->manufacturing_cost * $detail->received_qty;
-            $grandTotal += $rowTotal;
-
-            $html .= '
-            <tr>
-                <td>' . $count . '</td>
-                <td>' . ($detail->product->name ?? '-') . '</td>
-                <td>' . ($detail->variation->sku ?? '-') . '</td>
-                <td align="right">' . number_format($detail->manufacturing_cost, 2) . '</td>
-                <td>' . number_format($detail->received_qty, 2) . ' ' . ($detail->product->measurementUnit->shortcode ?? '') . '</td>
-                <td align="right">' . number_format($rowTotal, 2) . '</td>
-                <td>' . ($detail->remarks ?? '-') . '</td>
-            </tr>';
+        $total = 0;
+        foreach ($receiving->details as $i => $d) {
+            $total += $d->received_qty;
+            $html .= '<tr><td>' . ($i + 1) . '</td><td>' . e($d->product->name ?? '-') . '</td><td>' . e($d->variation->sku ?? '-') . '</td>'
+                . '<td>' . number_format($d->received_qty, 2) . ' ' . e($d->product->measurementUnit->shortcode ?? '') . '</td></tr>';
         }
-
-        $conveyance = (float)($receiving->convance_charges ?? 0);
-        $discount   = (float)($receiving->bill_discount    ?? 0);
-        $net        = $grandTotal + $conveyance - $discount;
-
-        $html .= '<tr><td colspan="5" align="right"><b>Sub Total</b></td><td align="right"><b>' . number_format($grandTotal, 2) . '</b></td><td></td></tr>';
-
-        if ($conveyance > 0) {
-            $html .= '<tr><td colspan="5" align="right">Conveyance</td><td align="right">' . number_format($conveyance, 2) . '</td><td></td></tr>';
-        }
-        if ($discount > 0) {
-            $html .= '<tr><td colspan="5" align="right">Discount</td><td align="right">(' . number_format($discount, 2) . ')</td><td></td></tr>';
-        }
-
-        $html .= '
-            <tr style="background-color:#f5f5f5;">
-                <td colspan="5" align="right"><b>Net Total</b></td>
-                <td align="right"><b>' . number_format($net, 2) . '</b></td>
-                <td></td>
-            </tr>
-        </table>';
-
+        $html .= '<tr style="background-color:#f5f5f5;"><td colspan="3" align="right"><b>Total Pcs</b></td><td><b>' . number_format($total, 2) . '</b></td></tr></table>';
         $pdf->writeHTML($html, true, false, true, false, '');
 
         $pdf->Ln(20);
         $y = $pdf->GetY();
-        $pdf->Line(28,  $y, 68,  $y);
+        $pdf->Line(28, $y, 68, $y);
         $pdf->Line(130, $y, 170, $y);
-        $pdf->SetXY(28,  $y + 2); $pdf->Cell(40, 6, 'Received By',   0, 0, 'C');
-        $pdf->SetXY(130, $y + 2); $pdf->Cell(40, 6, 'Authorized By', 0, 0, 'C');
+        $pdf->SetXY(28, $y + 2);  $pdf->Cell(40, 6, 'Received By', 0, 0, 'C');
+        $pdf->SetXY(130, $y + 2); $pdf->Cell(40, 6, 'Delivered By', 0, 0, 'C');
 
-        return $pdf->Output('production_receiving_' . $receiving->id . '.pdf', 'I');
+        return $pdf->Output('GRN_' . $receiving->grn_no . '.pdf', 'I');
     }
 
-    // ── Accounting ────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────
+
+    private function formData(): array
+    {
+        return [
+            'products' => Product::where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
+            'accounts' => ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get(['id', 'name']),
+        ];
+    }
+
+    private function validateRequest(Request $request): array
+    {
+        return $request->validate([
+            'vendor_id'                   => 'required|exists:chart_of_accounts,id',
+            'rec_date'                    => 'required|date',
+            'item_details'                => 'required|array|min:1',
+            'item_details.*.product_id'   => 'required|exists:products,id',
+            'item_details.*.variation_id' => 'nullable|exists:product_variations,id',
+            'item_details.*.received_qty' => 'required|numeric|min:0.01',
+        ]);
+    }
+
+    private function nextGrnNo(): string
+    {
+        $last = ProductionReceiving::withTrashed()->where('grn_no', 'like', 'GRN-%')
+            ->lockForUpdate()->pluck('grn_no')
+            ->map(fn ($n) => (int) substr($n, 4))->max() ?? 0;
+
+        return 'GRN-' . str_pad($last + 1, 5, '0', STR_PAD_LEFT);
+    }
 
     /**
-     * DR  Finished Goods Stock (104004)  CR Vendor  ← mfg cost payable
-     * DR  Conveyance Expense (502001)    CR Vendor  ← conveyance
-     * DR  Vendor                         CR Purchase Discount (402001)
+     * Save lines with CMT cost + fabric consumption taken from the product.
+     * Returns names of products that have no CMT cost set.
      */
-    private function postProductionReceivingEntries(ProductionReceiving $receiving): void
+    private function saveDetails(ProductionReceiving $receiving, array $lines): array
     {
-        $itemsTotal = $receiving->details->sum(fn($d) => $d->manufacturing_cost * $d->received_qty);
-        $conveyance = (float)($receiving->convance_charges ?? 0);
-        $discount   = (float)($receiving->bill_discount    ?? 0);
+        $products = Product::whereIn('id', collect($lines)->pluck('product_id'))->get()->keyBy('id');
+        $missing  = [];
 
-        $this->syncVoucherEntries(
-            $receiving,
-            'production_receiving',
-            $receiving->rec_date,
-            [
-                ['dr' => '104004', 'cr_id' => $receiving->vendor_id, 'amount' => $itemsTotal, 'remarks' => 'Finished goods received'],
-                ['dr' => '502001', 'cr_id' => $receiving->vendor_id, 'amount' => $conveyance,  'remarks' => 'Conveyance charges'],
-                ['dr_id' => $receiving->vendor_id, 'cr' => '402001', 'amount' => $discount,    'remarks' => 'Discount received'],
-            ]
-        );
+        foreach ($lines as $line) {
+            $product = $products[$line['product_id']];
+            $qty     = (float) $line['received_qty'];
 
-        Log::info('[ProdReceiving] Accounting synced', [
-            'receiving_id' => $receiving->id,
-            'items_total'  => $itemsTotal,
-            'conveyance'   => $conveyance,
-            'discount'     => $discount,
-        ]);
+            $fabricId  = $product->fabric_id && (float) $product->consumption > 0 ? (int) $product->fabric_id : null;
+            $fabricQty = $fabricId ? round($qty * (float) $product->consumption, 3) : 0;
+            $fabricRate = $fabricId ? Inventory::avgCost($fabricId, null, $receiving->rec_date) : 0;
+
+            if ((float) $product->cmt_cost <= 0) $missing[] = $product->name;
+
+            ProductionReceivingDetail::create([
+                'production_receiving_id' => $receiving->id,
+                'product_id'              => $product->id,
+                'variation_id'            => $line['variation_id'] ?? null,
+                'fabric_id'               => $fabricId,
+                'fabric_qty'              => $fabricQty,
+                'fabric_rate'             => $fabricRate,
+                'manufacturing_cost'      => (float) $product->cmt_cost,
+                'received_qty'            => $qty,
+            ]);
+        }
+
+        return array_values(array_unique($missing));
+    }
+
+    private function post(ProductionReceiving $receiving): void
+    {
+        $warehouse = Location::find($receiving->location_id) ?? Location::default();
+        $vendorLoc = Location::forAccount($receiving->vendor_id)
+            ?? Location::syncForAccount(ChartOfAccounts::findOrFail($receiving->vendor_id));
+
+        $cmtTotal    = 0.0;
+        $fabricTotal = 0.0;
+        $ledger      = [];
+
+        foreach ($receiving->details as $d) {
+            $qty        = (float) $d->received_qty;
+            $cmt        = (float) $d->manufacturing_cost;
+            $fabricCost = (float) $d->fabric_qty * (float) $d->fabric_rate;
+
+            $cmtTotal    += $cmt * $qty;
+            $fabricTotal += $fabricCost;
+
+            $ledger[] = [
+                'product_id'   => $d->product_id,
+                'variation_id' => $d->variation_id,
+                'location_id'  => $warehouse->id,
+                'qty'          => $qty,
+                'unit_cost'    => $qty > 0 ? $cmt + $fabricCost / $qty : $cmt,
+                'remarks'      => 'FG received ' . $receiving->grn_no,
+            ];
+
+            if ($d->fabric_id && $vendorLoc && (float) $d->fabric_qty > 0) {
+                $ledger[] = [
+                    'product_id'   => $d->fabric_id,
+                    'variation_id' => null,
+                    'location_id'  => $vendorLoc->id,
+                    'qty'          => -1 * (float) $d->fabric_qty,
+                    'unit_cost'    => (float) $d->fabric_rate,
+                    'remarks'      => 'Fabric consumed ' . $receiving->grn_no,
+                ];
+            }
+        }
+
+        $conveyance = (float) ($receiving->convance_charges ?? 0);
+        $discount   = (float) ($receiving->bill_discount ?? 0);
+        $whAcc      = $warehouse->inventoryAccountId();
+
+        $entries = [
+            ['dr_id' => $whAcc, 'cr_id' => $receiving->vendor_id, 'amount' => round($cmtTotal, 2), 'remarks' => 'CMT charges — ' . $receiving->grn_no],
+            ['dr' => '502001', 'cr_id' => $receiving->vendor_id, 'amount' => $conveyance, 'remarks' => 'Conveyance — ' . $receiving->grn_no],
+            ['dr_id' => $receiving->vendor_id, 'cr' => '402001', 'amount' => $discount, 'remarks' => 'Discount — ' . $receiving->grn_no],
+        ];
+        if ($vendorLoc) {
+            $entries[] = ['dr_id' => $whAcc, 'cr_id' => $vendorLoc->inventoryAccountId(), 'amount' => round($fabricTotal, 2),
+                          'remarks' => 'Fabric consumed at ' . $vendorLoc->name . ' — ' . $receiving->grn_no];
+        }
+
+        $this->syncVoucherEntries($receiving, 'production_receiving', $receiving->rec_date, $entries);
+        Inventory::sync($receiving, $receiving->rec_date, $ledger);
+
+        Log::info('[FGReceiving] Posted', ['id' => $receiving->id, 'cmt' => $cmtTotal, 'fabric' => $fabricTotal]);
     }
 }

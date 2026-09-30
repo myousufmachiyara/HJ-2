@@ -80,6 +80,10 @@ class DatabaseSeeder extends Seeder
 
             // POS
             'pos_system',
+
+            // HJ flow
+            'stock_adjustments',
+            'pdc_cheques',
         ];
 
         $actions = ['index', 'create', 'edit', 'delete', 'print'];
@@ -93,7 +97,7 @@ class DatabaseSeeder extends Seeder
         }
 
         // 📊 Report permissions (only view access, no CRUD)
-        $reports = ['inventory', 'purchase', 'production', 'sales', 'accounts'];
+        $reports = ['inventory', 'purchase', 'production', 'sales', 'accounts', 'location_stock'];
 
         foreach ($reports as $report) {
             Permission::firstOrCreate([
@@ -376,5 +380,9 @@ class DatabaseSeeder extends Seeder
         ]);
 
 
+    
+        // Stock locations for every customer / vendor, inventory accounts,
+        // default warehouse and HJ system accounts.
+        \App\Support\HjSetup::run();
     }
 }

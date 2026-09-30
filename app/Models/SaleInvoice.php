@@ -11,7 +11,7 @@ class SaleInvoice extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'invoice_no', 'date', 'account_id', 'type', 'payment_terms',
+        'invoice_no', 'date', 'account_id', 'location_id', 'type', 'payment_terms',
         'ref_no', 'remarks', 'sub_total', 'discount', 'convance_charges',
         'net_amount', 'paid_amount', 'balance', 'payment_status', 'created_by',
     ];
@@ -29,6 +29,11 @@ class SaleInvoice extends Model
     public function account()
     {
         return $this->belongsTo(ChartOfAccounts::class, 'account_id');
+    }
+
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function creator()

@@ -26,11 +26,12 @@ use App\Http\Controllers\{
     AccountsReportController,
     SummaryReportController,
     SaleReturnController,
-    PermissionController,
     LocationController,
     StockTransferController,
     ProductionReturnController,
     ProductionWastageController,
+    StockAdjustmentController,
+    PdcChequeController,
     PosController,
     ShopifyStoreController,
     ItemsImportController
@@ -57,6 +58,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/product/{product}/variations',         [ProductController::class, 'getVariations'])->name('product.variations');
     Route::get('/product/{product}/variations2',        [ProductController::class, 'getVariations2'])->name('product.variations2');
     Route::get('/product/{product}/productions',        [ProductionController::class, 'getProductProductions'])->name('product.productions');
+    Route::get('/products/next-sku/{category}',          [ProductController::class, 'nextSku'])->name('products.next-sku');
     Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
 
     Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template')->middleware('check.permission:products.create');
@@ -71,12 +73,17 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/production-summary/{id}',  [ProductionController::class, 'summary'])->name('production.summary');
     Route::get('/production-gatepass/{id}', [ProductionController::class, 'printGatepass'])->name('production.gatepass');
     
+    Route::get('/stock/available', [StockTransferController::class, 'available'])->name('stock.available');
     Route::post('/locations/{id}/set-default', [LocationController::class, 'setDefault'])->name('locations.set-default');
 
     // ── Sale Invoice payment helpers ──────────────────────────────────
     Route::post('/sale_invoices/{id}/payments',               [SaleInvoiceController::class, 'addPayment'])->name('sale_invoices.payments.store');
     Route::put('/sale_invoices/{id}/payments/{paymentId}',    [SaleInvoiceController::class, 'updatePayment'])->name('sale_invoices.payments.update');
     Route::delete('/sale_invoices/{id}/payments/{paymentId}', [SaleInvoiceController::class, 'deletePayment'])->name('sale_invoices.payments.destroy');
+
+    // ── PDC helpers ───────────────────────────────────────────────────
+    Route::get('/pdc_cheques/vendor-bills/{vendor}', [PdcChequeController::class, 'vendorBills'])->middleware('check.permission:pdc_cheques.create')->name('pdc_cheques.vendor-bills');
+    Route::post('/pdc_cheques/{id}/status',          [PdcChequeController::class, 'changeStatus'])->middleware('check.permission:pdc_cheques.edit')->name('pdc_cheques.status');
 
     // ── Vouchers (single tabbed page) ────────────────────────────────
     Route::get('vouchers', [VoucherController::class, 'index'])->middleware('check.permission:vouchers.index')->name('vouchers.all');
@@ -97,7 +104,6 @@ Route::middleware(['auth'])->group(function () {
     $modules = [
         // User Management
         'roles'       => ['controller' => RoleController::class,       'permission' => 'user_roles'],
-        'permissions' => ['controller' => PermissionController::class,  'permission' => 'role_permissions'],
         'users'       => ['controller' => UserController::class,        'permission' => 'users'],
 
         // Accounts
@@ -113,6 +119,10 @@ Route::middleware(['auth'])->group(function () {
         // Stock Management
         'locations'      => ['controller' => LocationController::class,     'permission' => 'locations'],
         'stock_transfer' => ['controller' => StockTransferController::class, 'permission' => 'stock_transfer'],
+        'stock_adjustments' => ['controller' => StockAdjustmentController::class, 'permission' => 'stock_adjustments'],
+
+        // Post-dated cheques issued to vendors
+        'pdc_cheques' => ['controller' => PdcChequeController::class, 'permission' => 'pdc_cheques'],
 
         // Purchases
         'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
@@ -236,6 +246,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/purchase-return/import-items', [ItemsImportController::class, 'purchaseReturn'])->middleware('check.permission:purchase_return.create')->name('purchase_return.import_items');
     Route::post('/sale-invoices/import-items', [ItemsImportController::class, 'saleInvoice'])->middleware('check.permission:sale_invoices.create')->name('sale_invoices.import_items');
     Route::post('/sale-return/import-items', [ItemsImportController::class, 'saleReturn'])->middleware('check.permission:sale_return.create')->name('sale_return.import_items');
+    Route::post('/stock-adjustments/import-items', [ItemsImportController::class, 'stockAdjustment'])->middleware('check.permission:stock_adjustments.create')->name('stock_adjustments.import_items');
     Route::post('/stock-transfer/import-items', [ItemsImportController::class, 'stockTransfer'])->middleware('check.permission:stock_transfer.create')->name('stock_transfer.import_items');
  
 });

@@ -34,6 +34,11 @@
               <label>Sale Inv #</label>
               <input type="text" name="sale_invoice_no" class="form-control" value="{{ $return->sale_invoice_no }}">
             </div>
+            <div class="col-md-3">
+              <label>Return To (Stock Location) <span class="text-danger">*</span></label>
+              @include('partials.location-select', ['name' => 'location_id', 'groups' => $locationGroups, 'selected' => old('location_id', $return->location_id ?? $defaultLocationId), 'only' => ['warehouse', 'customer']])
+              <small class="text-muted">Where the returned pieces are now (our warehouse or the marketplace)</small>
+            </div>
           </div>
 
           <table class="table table-bordered" id="itemsTable">
@@ -81,7 +86,7 @@
                     @endif
                   </select>
                 </td>
-                <td><input type="number" name="items[{{ $i }}][qty]" class="form-control qty-input" value="{{ $item->qty }}" min="1"></td>
+                <td><input type="number" name="items[{{ $i }}][qty]" class="form-control qty-input" value="{{ $item->qty }}" min="0" step="any"></td>
                 <td><input type="number" name="items[{{ $i }}][price]" class="form-control price-input" step="any" value="{{ $item->price }}" required></td>
                 <td><input type="number" name="items[{{ $i }}][total]" class="form-control total-input" value="{{ $item->qty * $item->price }}" readonly></td>
                 <td>
@@ -173,7 +178,7 @@ $(document).ready(function () {
                 <option value="">Select Variation</option>
               </select>
             </td>
-            <td><input type="number" name="items[${rowIndex}][qty]" class="form-control qty-input" value="1" min="1"></td>
+            <td><input type="number" name="items[${rowIndex}][qty]" class="form-control qty-input" value="1" min="0" step="any"></td>
             <td><input type="number" name="items[${rowIndex}][price]" class="form-control price-input" step="any" required></td>
             <td><input type="number" name="items[${rowIndex}][total]" class="form-control total-input" readonly></td>
             <td><button type="button" class="btn btn-sm btn-danger removeRow"><i class="fas fa-trash"></i></button></td>

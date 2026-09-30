@@ -16,7 +16,7 @@
           <h2 class="card-title">All Locations</h2>
           <div>
             <button type="button" class="modal-with-form btn btn-primary" href="#addLocationModal">
-              <i class="fas fa-plus"></i> Add Location
+              <i class="fas fa-plus"></i> Add Warehouse
             </button>
           </div>
         </div>
@@ -28,9 +28,10 @@
       <div class="card-body">
         <div class="alert alert-info py-2 mb-3">
           <i class="fas fa-info-circle me-1"></i>
-          The <strong>Default</strong> warehouse holds all stock that hasn't been transferred out
-          (opening stock, purchases, production receipts). Exactly one warehouse can be default.
-          Customer stock locations are managed automatically from the customer account and are not shown here.
+          Stock can sit at our <strong>warehouses</strong>, at <strong>customers / marketplaces</strong> (e.g. Laam) and at
+          <strong>vendors / CMT</strong> (fabric dropped for stitching). Customer and vendor locations are created automatically
+          from their account in Chart of Accounts. Each location has its own stock account so its stock value shows in the ledger.
+          FG receivings land in the <strong>Default</strong> warehouse.
         </div>
 
         <div class="modal-wrapper table-scroll">
@@ -40,6 +41,8 @@
                 <th>#</th>
                 <th>Name</th>
                 <th>Code</th>
+                <th>Type</th>
+                <th>Stock Account</th>
                 <th>Default</th>
                 <th>Action</th>
               </tr>
@@ -50,8 +53,12 @@
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $location->name }}</td>
                 <td>{{ $location->code }}</td>
+                <td>{{ $location->typeLabel() }}</td>
+                <td>{{ $location->inventoryAccount->account_code ?? '' }} {{ $location->inventoryAccount->name ?? '' }}</td>
                 <td>
-                  @if($location->is_default)
+                  @if(!$location->isWarehouse())
+                    <span class="text-muted">—</span>
+                  @elseif($location->is_default)
                     <span class="badge bg-success"><i class="fas fa-star me-1"></i>Default</span>
                   @else
                     <form action="{{ route('locations.set-default', $location->id) }}" method="POST" class="d-inline">
@@ -61,6 +68,7 @@
                   @endif
                 </td>
                 <td>
+                  @if($location->isWarehouse())
                   <a class="text-primary modal-with-form" href="#editLocationModal{{ $location->id }}">
                     <i class="fa fa-edit"></i>
                   </a>
@@ -76,6 +84,9 @@
                         <i class="fas fa-trash-alt"></i>
                       </button>
                     </form>
+                  @endif
+                  @else
+                    <span class="text-muted small">auto</span>
                   @endif
                 </td>
               </tr>
@@ -123,7 +134,7 @@
         <form method="post" action="{{ route('locations.store') }}">
           @csrf
           <header class="card-header">
-            <h2 class="card-title">New Location</h2>
+            <h2 class="card-title">New Warehouse</h2>
           </header>
           <div class="card-body">
             <div class="form-group mb-3">

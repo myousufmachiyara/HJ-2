@@ -12,7 +12,9 @@ class LocationController extends Controller
     // List all locations
     public function index()
     {
-        $locations = Location::all();
+        $locations = Location::with('inventoryAccount')
+            ->orderByRaw("FIELD(type,'warehouse','customer','vendor')")
+            ->orderByDesc('is_default')->orderBy('name')->get();
         return view('stock-transfer.locations', compact('locations'));
     }
 
@@ -26,7 +28,8 @@ class LocationController extends Controller
                 'code' => 'nullable|string|max:50',
             ]);
 
-            $location = Location::create($request->only('name', 'code'));
+            $location = Location::create($request->only('name', 'code') + ['type' => Location::WAREHOUSE]);
+            $location->inventoryAccountId();
             Log::info('Location created', ['location' => $location->toArray()]);
 
             return redirect()->route('locations.index')->with('success', 'Location created successfully.');
@@ -54,7 +57,15 @@ class LocationController extends Controller
                 'code' => 'nullable|string|max:50',
             ]);
 
+            if (!$location->isWarehouse()) {
+                return back()->with('error', 'Customer / vendor locations are named from their account — rename the account in Chart of Accounts instead.');
+            }
             $location->update($request->only('name', 'code'));
+            if ($location->inventory_account_id) {
+                \App\Models\ChartOfAccounts::whereKey($location->inventory_account_id)
+                    ->where('account_code', '!=', '104001')
+                    ->update(['name' => 'Stock @ ' . $location->name]);
+            }
 
             Log::info('[Location Update] Success', [
                 'location_id' => $location->id,
@@ -89,6 +100,15 @@ class LocationController extends Controller
     public function destroy($id)
     {
         $location = Location::findOrFail($id);
+        if ($location->is_default) {
+            return back()->with('error', 'The default warehouse cannot be deleted.');
+        }
+        if (!$location->isWarehouse()) {
+            return back()->with('error', 'Customer / vendor locations follow their account and cannot be deleted here.');
+        }
+        if (\App\Models\StockLedger::where('location_id', $location->id)->exists()) {
+            return back()->with('error', 'This location has stock history and cannot be deleted.');
+        }
         $location->delete();
         \Log::info('Location deleted', ['location_id' => $location->id]);
 

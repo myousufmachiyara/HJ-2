@@ -67,8 +67,8 @@
             </div>
             <div class="col-md-3 mb-3">
               <label>Customer</label>
-              <select name="account_id" data-plugin-selecttwo class="form-control select2-js">
-                <option value="">Walk-in Customer</option>
+              <select name="account_id" data-plugin-selecttwo class="form-control select2-js" required>
+                <option value="">Select Customer</option>
                 @foreach($customers as $c)
                   <option value="{{ $c->id }}"
                     {{ $invoice->account_id == $c->id ? 'selected' : '' }}>
@@ -76,6 +76,11 @@
                   </option>
                 @endforeach
               </select>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label>Dispatch From (Stock Location) <span class="text-danger">*</span></label>
+              @include('partials.location-select', ['name' => 'location_id', 'groups' => $locationGroups, 'selected' => old('location_id', $invoice->location_id ?? $defaultLocationId), 'only' => ['warehouse', 'customer']])
+              <small class="text-muted">Own warehouse, or the marketplace holding the stock (e.g. Laam)</small>
             </div>
             <div class="col-md-2 mb-3">
               <label>Type <span class="text-danger">*</span></label>

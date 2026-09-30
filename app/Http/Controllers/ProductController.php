@@ -298,8 +298,9 @@ class ProductController extends Controller
         $attributes    = Attribute::with('values')->get();
         $units         = MeasurementUnit::all();
         $vendors       = ChartOfAccounts::whereIn('account_type', ['customer', 'vendor'])->orderBy('name')->get();
+        $fabrics       = Product::where('item_type', 'raw')->orderBy('name')->get(['id', 'name', 'sku']);
 
-        return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors'));
+        return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors', 'fabrics'));
     }
 
     public function store(Request $request)
@@ -310,7 +311,7 @@ class ProductController extends Controller
             'subcategory_id'     => 'nullable|exists:product_subcategories,id',
             'vendor_id'          => 'nullable|exists:chart_of_accounts,id',
             'brand'              => 'nullable|string|max:255',
-            'sku'                => 'required|string|unique:products,sku',
+            'sku'                => 'nullable|string|unique:products,sku',   // blank = auto {CATCODE}-{00001}
             'barcode'            => 'nullable|string|unique:products,barcode',
             'sku_opening_date'   => 'nullable|date',
             'description'        => 'nullable|string',
@@ -319,10 +320,11 @@ class ProductController extends Controller
             'weight'             => 'nullable|numeric|min:0',
             'cmt_cost'           => 'nullable|numeric',
             'cost_price'         => 'nullable|numeric',
-            'consumption'        => 'nullable|numeric',
+            'consumption'        => 'nullable|numeric|min:0',
+            'fabric_id'          => 'nullable|exists:products,id',
             'selling_price'      => 'nullable|numeric',
             'compare_at_price'   => 'nullable|numeric|min:0',
-            'opening_stock'      => 'required|numeric',
+            'opening_stock'      => 'nullable|numeric',
             'reorder_level'      => 'nullable|numeric',
             'max_stock_level'    => 'nullable|numeric',
             'minimum_order_qty'  => 'nullable|numeric',
@@ -333,14 +335,24 @@ class ProductController extends Controller
 
         DB::beginTransaction();
         try {
-            $product = Product::create($request->only([
+            $data = $request->only([
                 'name', 'category_id', 'subcategory_id', 'vendor_id', 'brand',
                 'sku', 'barcode', 'sku_opening_date', 'description',
                 'measurement_unit', 'item_type', 'weight',
                 'cmt_cost', 'cost_price',
-                'opening_stock', 'selling_price', 'compare_at_price', 'consumption',
+                'opening_stock', 'selling_price', 'compare_at_price', 'consumption', 'fabric_id',
                 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active',
-            ]));
+            ]);
+            $autoSku = blank($data['sku'] ?? null);
+            if ($autoSku) {
+                $data['sku'] = Product::generateSku((int) $data['category_id']);
+            }
+            $data['opening_stock'] = $data['opening_stock'] ?? 0;
+            foreach (['cmt_cost', 'cost_price', 'selling_price', 'consumption', 'reorder_level', 'max_stock_level', 'minimum_order_qty'] as $num) {
+                if (array_key_exists($num, $data) && $data[$num] === null) unset($data[$num]);
+            }
+
+            $product = Product::create($data);
 
             Log::info('[Product Store] Product created', ['product_id' => $product->id]);
 
@@ -353,21 +365,25 @@ class ProductController extends Controller
 
             if ($request->has('variations')) {
                 foreach ($request->variations as $variationData) {
+                    $ids = collect($variationData['attributes'] ?? [])->pluck('attribute_value_id')->filter()->toArray();
+                    $sku = trim((string) ($variationData['sku'] ?? ''));
+                    if ($autoSku || $sku === '' || str_starts_with($sku, '-')) {
+                        $sku = Product::variationSku($product->sku, $ids);
+                    }
                     $variation = $product->variations()->create([
-                        'sku'            => $variationData['sku'] ?? null,
-                        'barcode'        => $variationData['barcode'] ?? null,
+                        'sku'            => $this->uniqueVariationSku($sku),
+                        'barcode'        => ($variationData['barcode'] ?? null) ?: null,
                         'stock_quantity' => $variationData['stock_quantity'] ?? 0,
                     ]);
 
-                    if (!empty($variationData['attributes'])) {
-                        $ids = collect($variationData['attributes'])->pluck('attribute_value_id')->filter()->toArray();
+                    if ($ids) {
                         $variation->attributeValues()->sync($ids);
                     }
                 }
             }
 
             DB::commit();
-            return redirect()->route('products.index')->with('success', 'Product created successfully.');
+            return redirect()->route('products.index')->with('success', 'Product ' . $product->sku . ' created successfully.');
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -415,13 +431,28 @@ class ProductController extends Controller
             }
         }
 
+        $fabrics = Product::where('item_type', 'raw')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
+
         return view('products.edit', compact(
-            'product', 'categories', 'subcategories', 'attributes', 'attributeValues', 'units', 'vendors'
+            'product', 'categories', 'subcategories', 'attributes', 'attributeValues', 'units', 'vendors', 'fabrics'
         ));
     }
 
     public function update(Request $request, $id)
     {
+        $request->validate([
+            'name'             => 'required|string|max:255|unique:products,name,' . $id,
+            'category_id'      => 'required|exists:product_categories,id',
+            'subcategory_id'   => 'nullable|exists:product_subcategories,id',
+            'sku'              => 'required|string|unique:products,sku,' . $id,
+            'barcode'          => 'nullable|string|unique:products,barcode,' . $id,
+            'measurement_unit' => 'required|exists:measurement_units,id',
+            'item_type'        => 'required|in:fg,raw,service',
+            'fabric_id'        => 'nullable|exists:products,id|not_in:' . $id,
+            'consumption'      => 'nullable|numeric|min:0',
+            'cmt_cost'         => 'nullable|numeric|min:0',
+        ]);
+
         DB::beginTransaction();
         try {
             $product = Product::findOrFail($id);
@@ -431,7 +462,7 @@ class ProductController extends Controller
                 'sku', 'barcode', 'sku_opening_date', 'measurement_unit', 'item_type',
                 'weight', 'cmt_cost', 'cost_price',
                 'opening_stock', 'description', 'selling_price', 'compare_at_price',
-                'consumption', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active',
+                'consumption', 'fabric_id', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active',
             ]));
 
             $handledVariationIds = [];
@@ -455,8 +486,12 @@ class ProductController extends Controller
 
             if (is_array($request->new_variations)) {
                 foreach ($request->new_variations as $newVar) {
+                    $newSku = trim((string) ($newVar['sku'] ?? ''));
+                    if ($newSku === '' || str_starts_with($newSku, '-')) {
+                        $newSku = Product::variationSku($product->sku, (array) ($newVar['attributes'] ?? []));
+                    }
                     $variation = $product->variations()->create([
-                        'sku'            => $newVar['sku'],
+                        'sku'            => $this->uniqueVariationSku($newSku),
                         'barcode'        => $newVar['barcode'] ?? null,
                         'stock_quantity' => $newVar['stock_quantity'] ?? 0,
                     ]);
@@ -498,8 +533,24 @@ class ProductController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[Product Update] Failed', ['error' => $e->getMessage()]);
-            return back()->withInput()->with('error', 'Product update failed. Try again.');
+            return back()->withInput()->with('error', 'Product update failed: ' . $e->getMessage());
         }
+    }
+
+    /** AJAX: preview the next SKU for a category (not reserved until save). */
+    public function nextSku($categoryId)
+    {
+        return response()->json(['sku' => Product::previewSku((int) $categoryId)]);
+    }
+
+    private function uniqueVariationSku(string $sku): string
+    {
+        $candidate = $sku;
+        $n = 2;
+        while (ProductVariation::withTrashed()->where('sku', $candidate)->exists()) {
+            $candidate = $sku . '-' . $n++;
+        }
+        return $candidate;
     }
 
     public function destroy($id)
@@ -512,9 +563,10 @@ class ProductController extends Controller
     public function getByBarcode($barcode)
     {
         try {
-            $variation = ProductVariation::with('product')->where('barcode', $barcode)->first();
+            $variation = ProductVariation::with('product')->where('barcode', $barcode)->first()
+                ?? ProductVariation::with('product')->where('sku', $barcode)->first();
 
-            if ($variation) {
+            if ($variation && $variation->product) {
                 return response()->json([
                     'success'   => true,
                     'type'      => 'variation',
@@ -534,7 +586,8 @@ class ProductController extends Controller
                 ]);
             }
 
-            $product = Product::where('barcode', $barcode)->first();
+            $product = Product::where('barcode', $barcode)->first()
+                ?? Product::where('sku', $barcode)->first();
 
             if ($product) {
                 return response()->json([

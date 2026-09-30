@@ -96,7 +96,7 @@
           @endif
 
           {{-- ── Stock Management ── --}}
-          @if(auth()->user()->can('locations.index') || auth()->user()->can('stock_transfer.index'))
+          @if(auth()->user()->can('locations.index') || auth()->user()->can('stock_transfer.index') || auth()->user()->can('stock_adjustments.index'))
           <li class="nav-parent">
             <a class="nav-link" href="#">
               <i class="fa fa-cubes"></i>
@@ -107,14 +107,20 @@
                 <li><a class="nav-link" href="{{ route('locations.index') }}">Locations</a></li>
               @endcan
               @can('stock_transfer.index')
-                <li><a class="nav-link" href="{{ route('stock_transfer.index') }}">Transfer</a></li>
+                <li><a class="nav-link" href="{{ route('stock_transfer.index') }}">Stock Movement</a></li>
+              @endcan
+              @can('stock_adjustments.index')
+                <li><a class="nav-link" href="{{ route('stock_adjustments.index') }}">Stock Adjustment / Opening</a></li>
+              @endcan
+              @can('reports.inventory')
+                <li><a class="nav-link" href="{{ route('reports.inventory') }}?tab=LOC">Stock by Location</a></li>
               @endcan
             </ul>
           </li>
           @endif
 
           {{-- ── Purchase ── --}}
-          @if(auth()->user()->can('purchase_invoices.index') || auth()->user()->can('purchase_return.index'))
+          @if(auth()->user()->can('purchase_invoices.index') || auth()->user()->can('purchase_return.index') || auth()->user()->can('production_receiving.index') || auth()->user()->can('pdc_cheques.index'))
           <li class="nav-parent">
             <a class="nav-link" href="#">
               <i class="fa fa-shopping-cart"></i>
@@ -126,6 +132,12 @@
               @endcan
               @can('purchase_return.index')
                 <li><a class="nav-link" href="{{ route('purchase_return.index') }}">Returns</a></li>
+              @endcan
+              @can('production_receiving.index')
+                <li><a class="nav-link" href="{{ route('production_receiving.index') }}">FG Receiving (CMT)</a></li>
+              @endcan
+              @can('pdc_cheques.index')
+                <li><a class="nav-link" href="{{ route('pdc_cheques.index') }}">PDC Cheques</a></li>
               @endcan
             </ul>
           </li>

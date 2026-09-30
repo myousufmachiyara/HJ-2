@@ -34,3 +34,10 @@ Schedule::command('queue:work --stop-when-empty --max-time=3600 --tries=3')
 // Housekeeping.
 Schedule::command('queue:prune-batches --hours=48 --unfinished=72')->daily();
 Schedule::command('queue:prune-failed --hours=168')->daily();
+
+// HJ flow setup — creates missing stock locations (one per customer / vendor),
+// their inventory accounts, system accounts and module permissions. Idempotent.
+Artisan::command('hj:setup', function () {
+    \App\Support\HjSetup::run();
+    $this->info('HJ setup complete: locations, inventory accounts and permissions are in sync.');
+})->purpose('Sync stock locations, inventory accounts and permissions for the HJ flow');

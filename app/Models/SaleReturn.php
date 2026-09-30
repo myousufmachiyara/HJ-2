@@ -11,6 +11,7 @@ class SaleReturn extends Model
 
     protected $fillable = [
         'account_id',
+        'location_id',
         'return_date',
         'sale_invoice_no',
         'remarks',
@@ -22,6 +23,11 @@ class SaleReturn extends Model
     public function customer()
     {
         return $this->belongsTo(ChartOfAccounts::class, 'account_id');
+    }
+
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
     }
 
     public function items()

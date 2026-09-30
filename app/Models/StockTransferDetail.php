@@ -13,7 +13,8 @@ class StockTransferDetail extends Model
         'transfer_id',
         'product_id',
         'variation_id',
-        'quantity'
+        'quantity',
+        'unit_cost',
     ];
 
     // Relationships

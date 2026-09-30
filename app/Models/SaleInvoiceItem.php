@@ -9,7 +9,7 @@ class SaleInvoiceItem extends Model
 {
     protected $fillable = [
         'sale_invoice_id', 'product_id', 'variation_id', 'item_name',
-        'sale_price', 'discount', 'quantity', 'unit', 'remarks',
+        'sale_price', 'discount', 'quantity', 'unit_cost', 'unit', 'remarks',
     ];
 
     public function invoice()
