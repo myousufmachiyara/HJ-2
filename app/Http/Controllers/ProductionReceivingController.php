@@ -45,6 +45,7 @@ class ProductionReceivingController extends Controller
 
     public function create()
     {
+
         return view('production-receiving.create', $this->formData());
     }
 
@@ -205,7 +206,7 @@ class ProductionReceivingController extends Controller
     private function formData(): array
     {
         return [
-            'products' => Product::where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
+            'products' => Product::orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
             'accounts' => ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get(['id', 'name']),
         ];
     }
