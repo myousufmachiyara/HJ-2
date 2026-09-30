@@ -29,11 +29,11 @@ class DatabaseSeeder extends Seeder
         $userId = 1;
         // 🔑 Create Super Admin User
         $admin = User::firstOrCreate(
-            ['username' => 'admin'],
+            ['username' => 'hassan'],
             [
-                'name' => 'Admin',
+                'name' => 'Hassan',
                 'email' => 'admin@gmail.com', // optional, keep if you want for notifications
-                'password' => Hash::make('12345678'),
+                'password' => Hash::make('hassan@786'),
             ]
         );
 
@@ -379,10 +379,26 @@ class DatabaseSeeder extends Seeder
             ['id' => 4, 'name' => 'Yards', 'shortcode' => 'yrds'],
         ]);
 
+        $categories = [
+            ['name' => '3pc Kurta Trouser',    'code' => '3KT'],
+            ['name' => '3pc Prince Coat',      'code' => '3PC'],
+            ['name' => '3pc Sherwani',         'code' => '3SH'],
+            ['name' => 'Waistcoat',            'code' => 'WC'],
+            ['name' => 'Sherwani',             'code' => 'SH'],
+            ['name' => 'Plain Kurta Trouser',  'code' => 'PKT'],
+            ['name' => 'Design Kurta Trouser', 'code' => 'DKT'],
+            ['name' => 'Prince Coat',          'code' => 'PC'],
+            ['name' => '5pcs Suit',            'code' => '5S'],
+            ['name' => '4pcs Suit',            'code' => '4S'],
+            ['name' => '3pcs Suit',            'code' => '3S'],
 
-    
-        // Stock locations for every customer / vendor, inventory accounts,
-        // default warehouse and HJ system accounts.
-        \App\Support\HjSetup::run();
+            // Raw material — fabric purchased and dropped at CMT (item type "raw")
+            ['name' => 'Fabric',               'code' => 'FAB'],
+        ];
+
+        foreach ($categories as $cat) {
+            $row = ProductCategory::withTrashed()->updateOrCreate(['code' => $cat['code']], $cat);
+            if ($row->trashed()) $row->restore();
+        }
     }
 }
