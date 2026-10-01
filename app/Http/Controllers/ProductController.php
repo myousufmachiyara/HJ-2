@@ -443,7 +443,7 @@ class ProductController extends Controller
 
         // Fabric (raw): PANNA list, article lines, and where the fabric is now
         $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
-        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
+        $fgArticles = Product::with('variations:id,product_id,sku')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
         $selectedPannas = $product->variations->map(fn ($v) => \App\Services\FabricSetup::pannaValueOf($v))->filter()->values()->all();
         $fabricRows = \App\Models\FabricArticle::with('fabricVariation')->where('fabric_id', $product->id)->get()
             ->map(fn ($r) => [
