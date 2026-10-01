@@ -300,7 +300,10 @@ class ProductController extends Controller
         $vendors       = ChartOfAccounts::whereIn('account_type', ['customer', 'vendor'])->orderBy('name')->get();
         $fabrics       = Product::where('item_type', 'raw')->orderBy('name')->get(['id', 'name', 'sku']);
 
-        return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors', 'fabrics'));
+        $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
+        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'sku']);
+
+        return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors', 'fabrics', 'pannaAttr', 'fgArticles'));
     }
 
     public function store(Request $request)
@@ -382,9 +385,14 @@ class ProductController extends Controller
                 }
             }
 
+            $this->saveFabricSetup($product, $request);
+
             DB::commit();
             return redirect()->route('products.index')->with('success', 'Product ' . $product->sku . ' created successfully.');
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[Product Store] Failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
@@ -433,8 +441,22 @@ class ProductController extends Controller
 
         $fabrics = Product::where('item_type', 'raw')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
 
+        // Fabric (raw): PANNA list, article lines, and where the fabric is now
+        $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
+        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
+        $selectedPannas = $product->variations->map(fn ($v) => \App\Services\FabricSetup::pannaValueOf($v))->filter()->values()->all();
+        $fabricRows = \App\Models\FabricArticle::with('fabricVariation')->where('fabric_id', $product->id)->get()
+            ->map(fn ($r) => [
+                'panna_value_id'       => \App\Services\FabricSetup::pannaValueOf($r->fabricVariation),
+                'article_id'           => $r->article_id,
+                'article_variation_id' => $r->article_variation_id,
+                'consumption'          => $r->consumption,
+            ])->all();
+        $fabricStock = $this->fabricStock($product);
+
         return view('products.edit', compact(
-            'product', 'categories', 'subcategories', 'attributes', 'attributeValues', 'units', 'vendors', 'fabrics'
+            'product', 'categories', 'subcategories', 'attributes', 'attributeValues', 'units', 'vendors', 'fabrics',
+            'pannaAttr', 'fgArticles', 'selectedPannas', 'fabricRows', 'fabricStock'
         ));
     }
 
@@ -527,14 +549,51 @@ class ProductController extends Controller
                 }
             }
 
+            $this->saveFabricSetup($product->fresh(), $request);
+
             DB::commit();
             return redirect()->route('products.index')->with('success', 'Product updated successfully.');
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[Product Update] Failed', ['error' => $e->getMessage()]);
             return back()->withInput()->with('error', 'Product update failed: ' . $e->getMessage());
         }
+    }
+
+    /** Fabric (raw) form section: PANNA variations + articles & consumption. */
+    private function saveFabricSetup(Product $product, Request $request): void
+    {
+        if ($product->item_type !== 'raw' || !$request->has('fabric_setup_present')) {
+            return;
+        }
+        \App\Services\FabricSetup::syncPannas($product, (array) $request->input('fabric_pannas', []));
+        \App\Services\FabricSetup::saveArticles($product->fresh('variations'), (array) $request->input('fabric_articles', []));
+    }
+
+    /** Fabric balance PANNA-wise × location (warehouse / CMT …) from the stock ledger. */
+    private function fabricStock(Product $product): array
+    {
+        if ($product->item_type !== 'raw') return ['locations' => [], 'rows' => []];
+
+        $rows = \App\Models\StockLedger::where('product_id', $product->id)
+            ->groupBy('location_id', 'variation_id')
+            ->selectRaw('location_id, variation_id, SUM(qty) AS qty')
+            ->havingRaw('ROUND(SUM(qty), 3) <> 0')->get();
+
+        $locations = \App\Models\Location::whereIn('id', $rows->pluck('location_id')->unique())->pluck('name', 'id')->all();
+        $skus = $product->variations->pluck('sku', 'id');
+
+        return [
+            'locations' => $locations,
+            'rows' => $rows->groupBy('variation_id')->map(fn ($g, $vid) => [
+                'panna' => $vid ? ($skus[$vid] ?? '#' . $vid) : '(no PANNA)',
+                'qty'   => $g->mapWithKeys(fn ($r) => [$r->location_id => (float) $r->qty])->all(),
+            ])->values()->all(),
+        ];
     }
 
     /** AJAX: preview the next SKU for a category (not reserved until save). */

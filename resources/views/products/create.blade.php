@@ -152,14 +152,14 @@
             </div>
           </div>
 
+          <div id="genericVariations">
           {{-- Attribute Selection --}}
           <div class="row mt-4">
             <div class="col-md-12">
               <h2 class="card-title">Product Variations</h2>
-              <small class="text-muted d-block mb-2">Finished goods: SIZE / AGE. Fabric (raw): select the <strong>PANNA</strong> values it comes in —
-                after saving, use the <i class="fas fa-sitemap"></i> button in the product list to set which articles are made from it and their consumption.</small>
+              <small class="text-muted d-block mb-2">Finished goods: generate size / age variations. (For a fabric, choose Item Type = Raw — the PANNA &amp; Articles section appears instead.)</small>
               <div class="row">
-                @foreach($attributes as $attribute)
+                @foreach($attributes->where('slug', '!=', 'panna') as $attribute)
                   <div class="col-md-6">
                     <label>{{ $attribute->name }}</label>
                     <select name="attributes[{{ $attribute->id }}][]" multiple class="form-control select2-js variation-select" data-attribute="{{ $attribute->id }}">
@@ -192,6 +192,9 @@
               </table>
             </div>
           </div>
+          </div>
+
+          @include('products._fabric-section')
         </div>
 
         <footer class="card-footer text-end">

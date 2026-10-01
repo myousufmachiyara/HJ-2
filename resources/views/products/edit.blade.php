@@ -207,6 +207,7 @@
               </div>
             </div>
           </div>
+          @include('products._fabric-section')
         </div>
 
         <footer class="card-footer text-end">

@@ -43,17 +43,18 @@ class FabricArticleController extends Controller
             'rows.*.consumption.gt' => 'Consumption must be more than 0.',
         ]);
 
-        $rows = $this->normalise($fabric, $data['rows'] ?? []);
-
-        DB::transaction(function () use ($fabric, $rows) {
-            FabricArticle::where('fabric_id', $fabric->id)->delete();
-            foreach ($rows as $r) {
-                FabricArticle::create($r + ['fabric_id' => $fabric->id]);
+        // PANNA is required on every line when the fabric has PANNA variations
+        if ($fabric->variations->isNotEmpty()) {
+            foreach ($data['rows'] ?? [] as $i => $r) {
+                if (empty($r['fabric_variation_id'])) {
+                    throw ValidationException::withMessages(["rows.$i.fabric_variation_id" => 'Line ' . ($i + 1) . ': select the PANNA.']);
+                }
             }
-        });
+        }
+        $count = DB::transaction(fn () => \App\Services\FabricSetup::saveArticles($fabric, $data['rows'] ?? [], 'rows'));
 
         return redirect()->route('products.fabric-articles', $fabric->id)
-            ->with('success', count($rows) . ' article consumption line(s) saved for ' . $fabric->name . '.');
+            ->with('success', $count . ' article consumption line(s) saved for ' . $fabric->name . '.');
     }
 
     /**
