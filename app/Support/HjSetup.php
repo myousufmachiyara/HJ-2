@@ -62,7 +62,7 @@ class HjSetup
         Location::syncAll();
 
         // Fabric width attribute — fabrics get one variation per panna (e.g. 36", 44", 54", 58").
-        // Rename it from Products → Attributes once the client confirms the term.
+        // Term confirmed by client: PANNA.
         if (Schema::hasTable('attributes') && !DB::table('attributes')->where('slug', 'panna')->exists()) {
             DB::table('attributes')->insert(['name' => 'PANNA', 'slug' => 'panna', 'created_at' => now(), 'updated_at' => now()]);
         }

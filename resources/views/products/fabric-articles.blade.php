@@ -19,18 +19,18 @@
     <section class="card mb-3">
       <header class="card-header d-flex justify-content-between align-items-center">
         <h2 class="card-title">Articles made from {{ $fabric->name }} <small class="text-muted">({{ $fabric->sku }})</small></h2>
-        <a href="{{ route('products.edit', $fabric->id) }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-edit"></i> Edit fabric / pannas</a>
+        <a href="{{ route('products.edit', $fabric->id) }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-edit"></i> Edit fabric / PANNA</a>
       </header>
       <div class="card-body">
-        <p class="mb-2">For each <strong>panna</strong> of this fabric, list the articles (finished goods) made from it and how much fabric
+        <p class="mb-2">For each <strong>PANNA</strong> of this fabric, list the articles (finished goods) made from it and how much fabric
           (<strong>{{ $unit }}</strong>) one piece uses. Use <em>All sizes</em> when every size uses the same, or add a line per size.
           FG Receiving uses this to deduct fabric from the CMT vendor, and the CMT Fabric report uses it to show what should remain.</p>
         @if($pannas->isEmpty())
-          <div class="alert alert-warning mb-0">This fabric has no panna variations yet. If it comes in different widths, open
+          <div class="alert alert-warning mb-0">This fabric has no PANNA variations yet. If it comes in different widths, open
             <a href="{{ route('products.edit', $fabric->id) }}">Edit</a> and add variations using the <strong>PANNA</strong> attribute
-            (add the panna values first under Products → Attributes). Otherwise the consumption below applies to the fabric as a whole.</div>
+            (add the PANNA values first under Products → Attributes). Otherwise the consumption below applies to the fabric as a whole.</div>
         @else
-          <div>Pannas: @foreach($pannas as $p)<span class="badge bg-secondary me-1">{{ $p->sku }}</span>@endforeach</div>
+          <div>PANNA: @foreach($pannas as $p)<span class="badge bg-secondary me-1">{{ $p->sku }}</span>@endforeach</div>
         @endif
       </div>
     </section>
@@ -49,7 +49,7 @@
           <table class="table table-bordered table-sm">
             <thead class="table-light">
               <tr>
-                @if($pannas->isNotEmpty())<th width="18%">Panna</th>@endif
+                @if($pannas->isNotEmpty())<th width="18%">PANNA</th>@endif
                 <th>Article (finished good)</th><th width="22%">Size</th><th width="14%">Consumption ({{ $unit }}/pc)</th><th width="8%"></th>
               </tr>
             </thead>
@@ -112,7 +112,7 @@
   }
 
   function downloadTemplate() {
-    const rows = [['Panna', 'Article Code (product or variation SKU)', 'Consumption ({{ $unit }}/pc)']];
+    const rows = [['PANNA', 'Article Code (product or variation SKU)', 'Consumption ({{ $unit }}/pc)']];
     @foreach($pannas->take(2) as $p)
       rows.push([@json($p->attributeValues->first()->value ?? $p->sku), 'ARTICLE-SKU-M', 2.5]);
     @endforeach

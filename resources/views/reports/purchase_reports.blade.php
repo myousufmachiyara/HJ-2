@@ -101,7 +101,7 @@
           </header>
           <div class="card-body p-0">
             <table class="table table-bordered table-sm mb-0">
-              <thead class="table-light"><tr><th>Fabric</th><th>Panna</th><th class="text-end">Opening</th><th class="text-end">Given</th><th class="text-end">Consumed</th><th class="text-end">Moved back / adj.</th><th class="text-end">Should remain</th><th class="text-end">Value</th></tr></thead>
+              <thead class="table-light"><tr><th>Fabric</th><th>PANNA</th><th class="text-end">Opening</th><th class="text-end">Given</th><th class="text-end">Consumed</th><th class="text-end">Moved back / adj.</th><th class="text-end">Should remain</th><th class="text-end">Value</th></tr></thead>
               <tbody>
                 @foreach($v->fabrics as $f)
                   <tr class="{{ $f->remaining < 0 ? 'table-danger' : '' }}">

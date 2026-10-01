@@ -217,7 +217,7 @@ class ProductionReceivingController extends Controller
 
     private function validateRequest(Request $request): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'vendor_id'                   => 'required|exists:chart_of_accounts,id',
             'rec_date'                    => 'required|date',
             'item_details'                => 'required|array|min:1',
@@ -226,6 +226,26 @@ class ProductionReceivingController extends Controller
             'item_details.*.received_qty' => 'required|numeric|min:0.01',
             'item_details.*.fabric_choice' => 'nullable|string|max:50',
         ]);
+
+        // The CMT vendor tells us which fabric PANNA was used — required for every
+        // article that has fabric set up, and it must be one of that article's options.
+        $errors = [];
+        foreach ($data['item_details'] as $i => $line) {
+            $options = \App\Models\FabricArticle::optionsFor((int) $line['product_id'], !empty($line['variation_id']) ? (int) $line['variation_id'] : null);
+            if ($options->isEmpty()) continue;
+
+            $choice = (string) ($line['fabric_choice'] ?? '');
+            $valid  = $options->contains(fn ($o) => $o->fabric_id . ':' . ($o->fabric_variation_id ?? '') === $choice);
+            if (!$valid) {
+                $name = Product::whereKey($line['product_id'])->value('name');
+                $errors["item_details.$i.fabric_choice"] = 'Line ' . ($i + 1) . ': select the PANNA the CMT used for ' . $name . '.';
+            }
+        }
+        if ($errors) {
+            throw \Illuminate\Validation\ValidationException::withMessages($errors);
+        }
+
+        return $data;
     }
 
     private function nextGrnNo(): string
@@ -240,9 +260,9 @@ class ProductionReceivingController extends Controller
     /**
      * Save lines with the product's CMT cost and the fabric it consumes.
      *
-     * Fabric + panna come from the fabric's article setup (FabricArticle):
-     *   - the line's chosen option (fabric_choice "fabricId:pannaId") if given, else
-     *   - the only option, else the option this vendor holds most of.
+     * Fabric + PANNA: the CMT vendor tells us which PANNA was used; staff select it
+     * on the line (fabric_choice "fabricId:pannaId"), limited to the options set up
+     * for that article on the fabric. Consumption comes from that setup.
      * Returns names of products that have no CMT cost set.
      */
     private function saveDetails(ProductionReceiving $receiving, array $lines): array
@@ -291,10 +311,8 @@ class ProductionReceivingController extends Controller
                 [$f, $fv] = array_pad(explode(':', $choice, 2), 2, '');
                 $picked = $options->first(fn ($o) => (string) $o->fabric_id === $f && (string) ($o->fabric_variation_id ?? '') === $fv);
             }
-            if (!$picked) {
-                $picked = $options->count() === 1 ? $options->first()
-                    : $options->sortByDesc(fn ($o) => $vendorLoc ? Inventory::balance($vendorLoc->id, $o->fabric_id, $o->fabric_variation_id, $receiving) : 0)->first();
-            }
+            // validateRequest() guarantees a valid choice; first option only as a safety net
+            $picked ??= $options->first();
             return [(int) $picked->fabric_id, $picked->fabric_variation_id ? (int) $picked->fabric_variation_id : null, (float) $picked->consumption];
         }
 

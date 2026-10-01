@@ -83,7 +83,7 @@
                 <tr>
                   <th>Item Code</th>
                   <th>Item Name</th>
-                  <th>Variation / Panna</th>
+                  <th>Variation / PANNA</th>
                   <th>Quantity</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -112,7 +112,7 @@
 
                   <td>
                     <select name="items[0][variation_id]" class="form-control select2-js variation-select">
-                      <option value="">Select Panna / Variation</option>
+                      <option value="">Select PANNA / Variation</option>
                     </select>
                   </td>                  
 
@@ -397,7 +397,7 @@
         loadVariations(row, productId, preselectVariationId);
       } else {
         row.find('.variation-select')
-          .html('<option value="">Select Panna / Variation</option>')
+          .html('<option value="">Select PANNA / Variation</option>')
           .prop('disabled', false)
           .trigger('change');
       }
@@ -417,7 +417,7 @@
             alert(res.message || 'Product not found');
             row.find('.product-code').val('').focus();
             row.find('.product-select').val('').trigger('change.select2');
-            row.find('.variation-select').html('<option value="">Select Panna / Variation</option>')
+            row.find('.variation-select').html('<option value="">Select PANNA / Variation</option>')
                .prop('disabled', false)
                .trigger('change');
             return;
@@ -459,7 +459,7 @@
               alert("Product found but not in dropdown list.");
               row.find('.product-code').val('').focus();
               row.find('.product-select').val('').trigger('change.select2');
-              row.find('.variation-select').html('<option value="">Select Panna / Variation</option>')
+              row.find('.variation-select').html('<option value="">Select PANNA / Variation</option>')
                  .prop('disabled', false)
                  .trigger('change');
             }
@@ -549,7 +549,7 @@
 
         <td>
           <select name="items[${rowIndex}][variation_id]" class="form-control select2-js variation-select">
-            <option value="">Select Panna / Variation</option>
+            <option value="">Select PANNA / Variation</option>
           </select>
         </td>
 
@@ -657,7 +657,7 @@
     });
     if (missing.length) {
       e.preventDefault();
-      alert('Select the panna / variation on line(s): ' + missing.join(', '));
+      alert('Select the PANNA / variation on line(s): ' + missing.join(', '));
     }
   });
 </script>

@@ -54,7 +54,7 @@
           <th width="18%">Barcode / Code</th>
           <th>Item</th>
           <th width="20%">Variation</th>
-          <th width="22%">Fabric / Panna <small class="text-muted">(auto)</small></th>
+          <th width="24%">PANNA used <small class="text-muted">(as told by CMT)</small></th>
           <th width="10%">Qty</th>
           <th width="5%"></th>
         </tr>
@@ -212,25 +212,28 @@
     });
   }
 
-  // Fabric / panna this line consumes at the CMT — from the fabric's article setup.
-  // One option → shown as text; several → staff picks (pre-selected: what this vendor holds most of).
+  // PANNA this line consumed at the CMT — the vendor tells us; staff pick it from the
+  // options set up for this article on the fabric (Products → fabric → Articles).
   function loadFabric(row, keepChoice = true) {
     const pid = row.find('.product-select').val();
     const $cell = row.find('.fabric-cell');
     const $hidden = $cell.find('.fabric-choice');
     const current = keepChoice ? ($hidden.val() || $cell.data('choice') || '') : '';
     $cell.find('.fabric-select').remove();
-    if (!pid) { $cell.find('.fabric-label').text('—'); return; }
+    const $label = $cell.find('.fabric-label');
+    if (!pid) { $hidden.val(''); $label.text('—'); return; }
     $.get('{{ route('fabric.options') }}', { product_id: pid, variation_id: row.find('.variation-select').val() || '', vendor_id: $('select[name="vendor_id"]').val() || '' }, function (opts) {
-      const $label = $cell.find('.fabric-label');
-      const fmt = o => o.label + ' · ' + o.consumption + '/pc' + (o.at_vendor !== null ? ' · at vendor ' + parseFloat(o.at_vendor).toFixed(2) : '');
-      if (!opts.length) { $hidden.val(''); $label.html('<span class="text-warning">not set up</span>').attr('title', 'No fabric linked to this article — set it on the fabric (Products → Articles)'); return; }
-      if (opts.length === 1) { $hidden.val(opts[0].value); $label.text(fmt(opts[0])).removeClass('text-danger').toggleClass('text-danger', opts[0].at_vendor !== null && opts[0].at_vendor <= 0); return; }
+      if (!opts.length) {
+        $hidden.val('');
+        $label.html('<span class="text-muted">no fabric set up</span>').attr('title', 'Link this article to its fabric under Products → fabric → Articles');
+        return;
+      }
       $label.text('');
-      const best = opts.slice().sort((a, b) => (b.at_vendor || 0) - (a.at_vendor || 0))[0];
-      const chosen = opts.some(o => o.value === current) ? current : best.value;
-      const $sel = $('<select class="form-control form-control-sm fabric-select"></select>');
+      const fmt = o => o.label + ' · ' + o.consumption + '/pc' + (o.at_vendor !== null ? ' · at CMT ' + parseFloat(o.at_vendor).toFixed(2) : '');
+      const $sel = $('<select class="form-control form-control-sm fabric-select" required></select>');
+      $sel.append($('<option value="">Select PANNA used</option>'));
       opts.forEach(o => $sel.append($('<option>').val(o.value).text(fmt(o))));
+      const chosen = opts.some(o => o.value === current) ? current : (opts.length === 1 ? opts[0].value : '');
       $sel.val(chosen);
       $hidden.val(chosen);
       $cell.append($sel);

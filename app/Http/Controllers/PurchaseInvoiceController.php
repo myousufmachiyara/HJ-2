@@ -390,7 +390,7 @@ class PurchaseInvoiceController extends Controller
         $errors = [];
         foreach ($items as $i => $item) {
             if (!empty($item['item_id']) && empty($item['variation_id']) && in_array((int) $item['item_id'], $withVariations, true)) {
-                $errors["items.$i.variation_id"] = 'Line ' . ($i + 1) . ': select the panna / variation of ' . (Product::whereKey($item['item_id'])->value('name') ?? 'the item') . '.';
+                $errors["items.$i.variation_id"] = 'Line ' . ($i + 1) . ': select the PANNA / variation of ' . (Product::whereKey($item['item_id'])->value('name') ?? 'the item') . '.';
             }
         }
         if ($errors) {
