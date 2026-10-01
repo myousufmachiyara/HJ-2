@@ -13,12 +13,6 @@
           <h2 class="card-title">Edit Product</h2>
         </header>
         <div class="card-body">
-          @if($product->item_type === 'raw')
-            <div class="alert alert-info py-2">
-              <i class="fas fa-scroll me-1"></i> Fabric: add one variation per <strong>PANNA</strong> below, then set the
-              <a href="{{ route('products.fabric-articles', $product->id) }}"><strong>articles made from this fabric &amp; consumption</strong></a>.
-            </div>
-          @endif
           @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
           @if ($errors->any())
             <div class="alert alert-danger">
@@ -26,123 +20,9 @@
             </div>
           @endif
 
-          <div class="row pb-3">
-            <div class="col-md-2">
-              <label>Product Name *</label>
-              <input type="text" name="name" class="form-control" required value="{{ old('name', $product->name) }}">
-            </div>
-            <div class="col-md-2">
-              <label>Brand</label>
-              <input type="text" name="brand" class="form-control" value="{{ old('brand', $product->brand) }}" placeholder="e.g. Generic Leather Co">
-            </div>
-            <div class="col-md-2">
-              <label>Category *</label>
-              <select name="category_id" class="form-control select2-js" required>
-                @foreach($categories as $cat)
-                  <option value="{{ $cat->id }}" {{ $product->category_id == $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label>Sub Category</label>
-              <select name="subcategory_id" class="form-control">
-                <option value="">-- None --</option>
-                @foreach($subcategories as $subcat)
-                  <option value="{{ $subcat->id }}" {{ $product->subcategory_id == $subcat->id ? 'selected' : '' }}>{{ $subcat->name }}</option>
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label>Vendor / Manufacturer</label>
-              <select name="vendor_id" class="form-control select2-js">
-                <option value="">-- None --</option>
-                @foreach($vendors as $v)
-                  <option value="{{ $v->id }}" {{ (old('vendor_id', $product->vendor_id) == $v->id) ? 'selected' : '' }}>{{ $v->name }}</option>
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label>SKU</label>
-              <input type="text" name="sku" id="sku" class="form-control" value="{{ old('sku', $product->sku) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Barcode</label>
-              <input type="text" name="barcode" class="form-control" value="{{ old('barcode', $product->barcode) }}" placeholder="Scan or type your own barcode">
-              <small class="text-muted">Manual — leave blank if not used</small>
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>SKU Opening Date</label>
-              <input type="date" name="sku_opening_date" class="form-control"
-                     value="{{ old('sku_opening_date', $product->sku_opening_date ? $product->sku_opening_date->format('Y-m-d') : '') }}">
-            </div>
-            <div class="col-md-2">
-              <label>Item Type</label>
-              <select name="item_type" class="form-control select2-js">
-                <option value="fg"      {{ $product->item_type == 'fg'      ? 'selected' : '' }}>F.G</option>
-                <option value="raw"     {{ $product->item_type == 'raw'     ? 'selected' : '' }}>Raw</option>
-                <option value="service" {{ $product->item_type == 'service' ? 'selected' : '' }}>Service</option>
-              </select>
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Measurement Unit *</label>
-              <select name="measurement_unit" class="form-control" required>
-                <option value="">-- Select Unit --</option>
-                @foreach($units as $unit)
-                  <option value="{{ $unit->id }}" {{ $product->measurement_unit == $unit->id ? 'selected' : '' }}>
-                    {{ $unit->name }} ({{ $unit->shortcode }})
-                  </option>
-                @endforeach
-              </select>
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Weight</label>
-              <input type="number" step="any" name="weight" class="form-control" value="{{ old('weight', $product->weight) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>CMT Cost <small class="text-muted">(Making)</small></label>
-              <input type="number" step="any" name="cmt_cost" class="form-control" value="{{ old('cmt_cost', $product->cmt_cost) }}">
-              @error('cmt_cost')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Cost Price <small class="text-muted">(Purchase)</small></label>
-              <input type="number" step="any" name="cost_price" class="form-control" value="{{ old('cost_price', $product->cost_price) }}">
-              @error('cost_price')<div class="text-danger">{{ $message }}</div>@enderror
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Selling Price</label>
-              <input type="number" step="any" name="selling_price" class="form-control" value="{{ old('selling_price', $product->selling_price) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Compare At Price <small class="text-muted">(discount)</small></label>
-              <input type="number" step="any" name="compare_at_price" class="form-control" value="{{ old('compare_at_price', $product->compare_at_price) }}" placeholder="Original price before discount">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Opening Stock</label>
-              <input type="number" step="any" name="opening_stock" class="form-control" value="{{ old('opening_stock', $product->opening_stock) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Reorder Level</label>
-              <input type="number" step="any" name="reorder_level" class="form-control" value="{{ old('reorder_level', $product->reorder_level) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Max Stock Level</label>
-              <input type="number" step="any" name="max_stock_level" class="form-control" value="{{ old('max_stock_level', $product->max_stock_level) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Min Order Qty</label>
-              <input type="number" step="any" name="minimum_order_qty" class="form-control" value="{{ old('minimum_order_qty', $product->minimum_order_qty) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Status</label>
-              <select name="is_active" class="form-control">
-                <option value="1" {{ old('is_active', $product->is_active) == 1 ? 'selected' : '' }}>Active</option>
-                <option value="0" {{ old('is_active', $product->is_active) == 0 ? 'selected' : '' }}>Inactive</option>
-              </select>
-            </div>
-            <div class="col-md-4 mt-3">
-              <label>Description</label>
-              <textarea name="description" class="form-control">{{ old('description', $product->description) }}</textarea>
-            </div>
+          @include('products._main-fields')
+
+          <div class="row" id="imagesBlock">
             <div class="col-md-6 mt-3">
               <label>Product Images</label>
               <input type="file" id="imageUpload" name="prod_att[]" multiple class="form-control">

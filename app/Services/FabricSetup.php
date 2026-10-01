@@ -58,7 +58,9 @@ class FabricSetup
         $clean = [];
 
         foreach (array_values($rows) as $i => $r) {
-            if (empty($r['article_id']) && empty($r['consumption'])) continue; // blank line
+            // a line without an article is ignored (e.g. the empty starter line, or a fabric
+            // created before its articles exist — articles can be added later by editing the fabric)
+            if (empty($r['article_id'])) continue;
             $line = $i + 1;
 
             $article = Product::find($r['article_id'] ?? null);

@@ -88,14 +88,15 @@
     const SIZES = @json($fgArticles->mapWithKeys(fn($a) => [$a->id => $a->variations->map(fn($v) => ['id' => $v->id, 'sku' => $v->sku])->values()]));
     let idx = {{ count($articleLines) }};
 
-    function isRaw() { return $('select[name="item_type"]').val() === 'raw'; }
+    function isRaw() { return $('input[name="item_type"]:checked').val() === 'raw'; }
 
     function toggle() {
       const raw = isRaw();
       $('#fabricSection').toggle(raw);
       $('#fabricSection').find('input, select').prop('disabled', !raw);
       // the generic SIZE/AGE variation generator is for finished goods only (create form)
-      $('#genericVariations').toggle(!raw).find('input, select, button').prop('disabled', raw);
+      const fg = $('input[name="item_type"]:checked').val() === 'fg';
+      $('#genericVariations').toggle(fg).find('input, select, button').prop('disabled', !fg);
       if (raw) limitPannas();
     }
 
@@ -120,7 +121,7 @@
 
     $(function () {
       $('#fabricArticleRows select').select2({ width: '100%' });
-      $('select[name="item_type"]').on('change', toggle);
+      $(document).on('product-type-changed', toggle);
       $('#fabricPannas').on('change', limitPannas);
       $(document).on('change', '.fa-article', function () { fillSizes($(this).closest('tr')); });
       $(document).on('click', '.fs-remove-line', function () { $(this).closest('tr').remove(); });
