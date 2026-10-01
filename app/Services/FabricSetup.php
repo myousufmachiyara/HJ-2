@@ -64,7 +64,7 @@ class FabricSetup
             $line = $i + 1;
 
             $article = Product::find($r['article_id'] ?? null);
-            if (!$article || $article->item_type !== 'fg') {
+            if (!$article) {
                 throw ValidationException::withMessages(["$field.$i.article_id" => "Article line $line: select a finished-good article."]);
             }
             $cons = (float) ($r['consumption'] ?? 0);
