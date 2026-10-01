@@ -301,7 +301,7 @@ class ProductController extends Controller
         $fabrics       = Product::where('item_type', 'raw')->orderBy('name')->get(['id', 'name', 'sku']);
 
         $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
-        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'sku']);
+        $fgArticles = Product::with('variations:id,product_id,sku')->orderBy('name')->get(['id', 'name', 'sku']);
 
         return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors', 'fabrics', 'pannaAttr', 'fgArticles'));
     }
