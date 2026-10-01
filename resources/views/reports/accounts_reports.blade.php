@@ -156,6 +156,7 @@
 
     {{-- ── 2. TRIAL BALANCE ────────────────────────────────────── --}}
     @if($report === 'trial_balance')
+      <div class="alert alert-secondary py-2 small mb-2"><i class="fas fa-calendar-check me-1"></i> Position as of <strong>{{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}</strong> (all transactions up to the To date, including opening balances).</div>
       @php
         $tbData    = collect($reportData);
         $totalDr   = $tbData->sum(fn($r) => (float) str_replace(',', '', $r['debit']));
@@ -259,6 +260,7 @@
 
     {{-- ── 4. BALANCE SHEET ────────────────────────────────────── --}}
     @if($report === 'balance_sheet')
+      <div class="alert alert-secondary py-2 small mb-2"><i class="fas fa-calendar-check me-1"></i> Position as of <strong>{{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}</strong> (all transactions up to the To date, including opening balances).</div>
       <div class="table-responsive">
         <table class="table table-bordered table-sm" id="bsTable">
           <thead class="table-light">
@@ -348,6 +350,7 @@
 
     {{-- ── 6. RECEIVABLES ──────────────────────────────────────── --}}
     @if($report === 'receivables')
+      <div class="alert alert-secondary py-2 small mb-2"><i class="fas fa-calendar-check me-1"></i> Position as of <strong>{{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}</strong> (all transactions up to the To date, including opening balances).</div>
       @php $totalRec = collect($reportData)->sum(fn($r) => (float) str_replace(',', '', $r['total_receivable'])); @endphp
       <div class="row mb-3">
         <div class="col text-end">
@@ -397,6 +400,7 @@
 
     {{-- ── 7. PAYABLES ─────────────────────────────────────────── --}}
     @if($report === 'payables')
+      <div class="alert alert-secondary py-2 small mb-2"><i class="fas fa-calendar-check me-1"></i> Position as of <strong>{{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}</strong> (all transactions up to the To date, including opening balances).</div>
       @php $totalPay = collect($reportData)->sum(fn($r) => (float) str_replace(',', '', $r['total_payable'])); @endphp
       <div class="row mb-3">
         <div class="col text-end">

@@ -100,20 +100,6 @@
               @error('weight')<div class="text-danger">{{ $message }}</div>@enderror
             </div>
             <div class="col-md-2 mt-3">
-              <label>Fabric <small class="text-muted">(raw item used)</small></label>
-              <select name="fabric_id" class="form-control select2-js">
-                <option value="">-- None --</option>
-                @foreach($fabrics as $f)
-                  <option value="{{ $f->id }}" {{ old('fabric_id') == $f->id ? 'selected' : '' }}>{{ $f->name }} ({{ $f->sku }})</option>
-                @endforeach
-              </select>
-              <small class="text-muted">Consumed at the CMT on FG receiving</small>
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Consumption <small class="text-muted">(fabric per pc)</small></label>
-              <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', '0') }}">
-            </div>
-            <div class="col-md-2 mt-3">
               <label>CMT Cost <small class="text-muted">(Making)</small></label>
               <input type="number" step="any" name="cmt_cost" class="form-control" value="{{ old('cmt_cost', '0.00') }}">
               @error('cmt_cost')<div class="text-danger">{{ $message }}</div>@enderror
@@ -170,6 +156,8 @@
           <div class="row mt-4">
             <div class="col-md-12">
               <h2 class="card-title">Product Variations</h2>
+              <small class="text-muted d-block mb-2">Finished goods: SIZE / AGE. Fabric (raw): select the <strong>PANNA</strong> values it comes in —
+                after saving, use the <i class="fas fa-sitemap"></i> button in the product list to set which articles are made from it and their consumption.</small>
               <div class="row">
                 @foreach($attributes as $attribute)
                   <div class="col-md-6">

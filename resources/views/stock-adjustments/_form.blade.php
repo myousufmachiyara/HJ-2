@@ -27,7 +27,7 @@
       </div>
       <div class="col-md-3">
         <label>Location <span class="text-danger">*</span></label>
-        @include('partials.location-select', ['name' => 'location_id', 'groups' => $locationGroups, 'selected' => old('location_id', $adj->location_id ?? $defaultLocationId)])
+        @include('partials.location-select', ['name' => 'location_id', 'groups' => $locationGroups, 'selected' => old('location_id', $adj->location_id ?? request('location_id', $defaultLocationId))])
       </div>
       <div class="col-md-4">
         <label>Remarks</label>

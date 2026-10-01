@@ -89,7 +89,7 @@
                     {{ $item->measurementUnit->shortcode ?? '' }}
                   </td>
                   <td class="text-end">{{ number_format($item->sale_price, 2) }}</td>
-                  <td class="text-end">{{ $item->discount ?? 0 }}%</td>
+                  <td class="text-end">{{ $item->discount ?? 0 }}%@if(($item->discount_amount ?? 0) > 0)<br><small>− {{ number_format($item->discount_amount, 2) }}/pc</small>@endif</td>
                   <td class="text-end">{{ number_format($item->getLineTotal(), 2) }}</td>
                 </tr>
               @endforeach

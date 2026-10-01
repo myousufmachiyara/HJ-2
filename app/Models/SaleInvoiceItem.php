@@ -9,7 +9,7 @@ class SaleInvoiceItem extends Model
 {
     protected $fillable = [
         'sale_invoice_id', 'product_id', 'variation_id', 'item_name',
-        'sale_price', 'discount', 'quantity', 'unit_cost', 'unit', 'remarks',
+        'sale_price', 'discount', 'discount_amount', 'quantity', 'unit_cost', 'unit', 'remarks',
     ];
 
     public function invoice()
@@ -22,7 +22,12 @@ class SaleInvoiceItem extends Model
 
     public function getLineTotal(): float
     {
-        $discountedPrice = $this->sale_price - ($this->sale_price * ($this->discount ?? 0) / 100);
-        return round($discountedPrice * $this->quantity, 2);
+        return round(self::netUnitPrice((float) $this->sale_price, (float) ($this->discount ?? 0), (float) ($this->discount_amount ?? 0)) * (float) $this->quantity, 2);
+    }
+
+    /** Price after line discount: % first, then Rs per piece; never below 0. */
+    public static function netUnitPrice(float $price, float $discountPct, float $discountAmount): float
+    {
+        return max(0, $price - ($price * $discountPct / 100) - $discountAmount);
     }
 }

@@ -14,6 +14,7 @@ class ProductionReceivingDetail extends Model
         'product_id',
         'variation_id',
         'fabric_id',
+        'fabric_variation_id',
         'fabric_qty',
         'fabric_rate',
         'manufacturing_cost',
@@ -29,6 +30,16 @@ class ProductionReceivingDetail extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function fabric()
+    {
+        return $this->belongsTo(Product::class, 'fabric_id');
+    }
+
+    public function fabricVariation()
+    {
+        return $this->belongsTo(ProductVariation::class, 'fabric_variation_id');
     }
 
     public function variation()

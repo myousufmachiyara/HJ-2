@@ -116,7 +116,8 @@
                   <th width="9%">Qty</th>
                   <th width="10%">Unit</th>
                   <th width="10%">Price</th>
-                  <th width="8%">Disc %</th>
+                  <th width="7%">Disc %</th>
+                  <th width="8%">Disc Rs/pc</th>
                   <th width="10%">Amount</th>
                   <th width="5%"></th>
                 </tr>
@@ -197,6 +198,11 @@
                              class="form-control"
                              value="{{ $item->discount ?? 0 }}" step="any"
                              min="0" max="100"
+                             onchange="rowTotal({{ $rowNum }})">
+                    </td>
+                    <td>
+                      <input type="number" name="items[{{ $key }}][discount_amount]" id="discamt_{{ $rowNum }}"
+                             class="form-control" value="{{ $item->discount_amount ?? 0 }}" step="any" min="0"
                              onchange="rowTotal({{ $rowNum }})">
                     </td>
                     <td>
@@ -587,6 +593,9 @@
         <td><input type="number" name="items[${rowKey}][discount]" id="disc_${i}"
                    class="form-control" value="0" step="any" min="0" max="100"
                    onchange="rowTotal(${i})"></td>
+        <td><input type="number" name="items[${rowKey}][discount_amount]" id="discamt_${i}"
+                   class="form-control" value="0" step="any" min="0"
+                   onchange="rowTotal(${i})"></td>
         <td><input type="number" id="amount_${i}"
                    class="form-control" value="0" disabled></td>
         <td>
@@ -606,7 +615,8 @@
     const price = parseFloat($(`#price_${i}`).val()) || 0;
     const qty   = parseFloat($(`#qty_${i}`).val())   || 0;
     const disc  = parseFloat($(`#disc_${i}`).val())  || 0;
-    const amt   = (price - (price * disc / 100)) * qty;
+    const dAmt  = parseFloat($(`#discamt_${i}`).val()) || 0;   // Rs off per piece
+    const amt   = Math.max(0, price - (price * disc / 100) - dAmt) * qty;
     $(`#amount_${i}`).val(amt.toFixed(2));
     calcNet();
   }

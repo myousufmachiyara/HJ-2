@@ -33,19 +33,27 @@ class DashboardController extends Controller
             ->selectRaw('COUNT(*) as count, SUM(net_amount) as total, SUM(paid_amount) as collected')
             ->first();
 
-        // ── Receivables (outstanding balance) ─────────────────────────
-        $totalReceivables = SaleInvoice::whereNull('deleted_at')
-            ->whereIn('payment_status', ['unpaid', 'partial'])
-            ->sum('balance');
+        // ── Receivables / Payables — from the ledger incl. opening balances ──
+        $partyBalance = function (string $type): float {
+            $accounts = ChartOfAccounts::where('account_type', $type)->get(['id', 'receivables', 'payables']);
+            $ids      = $accounts->pluck('id');
+            $opening  = $accounts->sum(fn ($a) => (float) $a->receivables - (float) $a->payables);
+            $dr = (float) Voucher::whereIn('ac_dr_sid', $ids)->sum('amount');
+            $cr = (float) Voucher::whereIn('ac_cr_sid', $ids)->sum('amount');
+            return $opening + $dr - $cr;   // + = they owe us
+        };
+        $totalReceivables = max(0, $partyBalance('customer'));
+        $totalPayables    = max(0, -$partyBalance('vendor'));
 
-        // ── Payables (vendor outstanding) ─────────────────────────────
-        $vendorIds = ChartOfAccounts::where('account_type', 'vendor')->pluck('id');
-        $totalPayables = Voucher::whereIn('ac_cr_sid', $vendorIds)
-            ->whereNull('deleted_at')
-            ->sum('amount')
-            - Voucher::whereIn('ac_dr_sid', $vendorIds)
-            ->whereNull('deleted_at')
-            ->sum('amount');
+        // ── Stock value (all locations) & PDC due ─────────────────────
+        $cost = \App\Services\Inventory::avgCostResolver();
+        $stockValue = \App\Models\StockLedger::groupBy('product_id', 'variation_id')
+            ->selectRaw('product_id, variation_id, SUM(qty) AS qty')->get()
+            ->sum(fn ($r) => (float) $r->qty * $cost($r->product_id, $r->variation_id));
+        $pdcDue = \App\Models\PdcCheque::whereIn('status', ['issued', 'presented'])
+            ->where('cheque_date', '<=', Carbon::today()->addDays(7)->toDateString());
+        $pdcDueAmount = (float) (clone $pdcDue)->sum('amount');
+        $pdcDueCount  = (clone $pdcDue)->count();
 
         // ── Production Orders ─────────────────────────────────────────
         // Pending = has no receiving at all
@@ -95,38 +103,15 @@ class DashboardController extends Controller
             ];
         });
 
-        // ── Stock Under Minimum ───────────────────────────────────────
-        // Calculate current stock from purchase invoices + production receiving - sales
-        $products = Product::with(['category', 'measurementUnit'])
+        // ── Stock Under Minimum (stock ledger, all locations) ─────────
+        $qty = \App\Models\StockLedger::groupBy('product_id')->selectRaw('product_id, SUM(qty) AS qty')->pluck('qty', 'product_id');
+        $lowStockProducts = Product::with(['category', 'measurementUnit'])
             ->where('is_active', true)
             ->where('reorder_level', '>', 0)
-            ->whereNull('deleted_at')
-            ->get();
-
-        $lowStockProducts = $products->filter(function ($p) {
-            $purchased = DB::table('purchase_invoice_items')
-                ->join('purchase_invoices', 'purchase_invoices.id', '=', 'purchase_invoice_items.purchase_invoice_id')
-                ->where('purchase_invoice_items.item_id', $p->id)
-                ->whereNull('purchase_invoices.deleted_at')
-                ->sum('purchase_invoice_items.quantity');
-
-            $received = DB::table('production_receiving_details')
-                ->join('production_receivings', 'production_receivings.id', '=', 'production_receiving_details.production_receiving_id')
-                ->where('production_receiving_details.product_id', $p->id)
-                ->whereNull('production_receivings.deleted_at')
-                ->sum('production_receiving_details.received_qty');
-
-            $sold = DB::table('sale_invoice_items')
-                ->join('sale_invoices', 'sale_invoices.id', '=', 'sale_invoice_items.sale_invoice_id')
-                ->where('sale_invoice_items.product_id', $p->id)
-                ->whereNull('sale_invoices.deleted_at')
-                ->sum('sale_invoice_items.quantity');
-
-            $currentStock = (float)$p->opening_stock + $purchased + $received - $sold;
-            $p->current_stock = $currentStock;
-
-            return $currentStock <= $p->reorder_level;
-        })->take(10)->values();
+            ->get()
+            ->each(fn ($p) => $p->current_stock = (float) ($qty[$p->id] ?? 0))
+            ->filter(fn ($p) => $p->current_stock <= $p->reorder_level)
+            ->take(10)->values();
 
         // ── Cash & Bank Positions ─────────────────────────────────────
         $cashBankAccounts = ChartOfAccounts::whereIn('account_type', ['cash', 'bank'])
@@ -173,6 +158,9 @@ class DashboardController extends Controller
             'monthlySales',
             'totalReceivables',
             'totalPayables',
+            'stockValue',
+            'pdcDueAmount',
+            'pdcDueCount',
             'pendingProductions',
             'pendingCount',
             'inProcessCount',

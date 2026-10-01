@@ -116,6 +116,18 @@ class Product extends Model
         return $values !== '' ? $productSku . '-' . $values : $productSku;
     }
 
+    /** For a fabric: the articles made from it (per panna) and consumption. */
+    public function fabricArticles()
+    {
+        return $this->hasMany(FabricArticle::class, 'fabric_id');
+    }
+
+    /** For an article: the fabrics it can be made from. */
+    public function articleFabrics()
+    {
+        return $this->hasMany(FabricArticle::class, 'article_id');
+    }
+
     public function fabric()
     {
         return $this->belongsTo(Product::class, 'fabric_id');

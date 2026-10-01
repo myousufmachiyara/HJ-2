@@ -8,8 +8,9 @@
     <section class="card">
       @if (session('success'))
         <div class="alert alert-success">{{ session('success') }}</div>
-      @elseif (session('error'))
-        <div class="alert alert-danger">{{ session('error') }}</div>
+      @endif
+      @if (session('error'))
+        <div class="alert alert-warning" style="white-space: pre-line"><i class="fas fa-exclamation-triangle me-1"></i>{{ session('error') }}</div>
       @endif
 
       <header class="card-header d-flex justify-content-between">

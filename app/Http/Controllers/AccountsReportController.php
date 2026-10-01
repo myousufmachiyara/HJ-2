@@ -11,6 +11,14 @@ use Illuminate\Support\Str;
 
 class AccountsReportController extends Controller
 {
+    // account_type groups (COA form uses 'expenses', seeder uses 'expense' — both count)
+    private const ASSET_TYPES     = ['asset', 'cash', 'bank', 'customer', 'inventory', 'receivable'];
+    private const LIABILITY_TYPES = ['liability', 'vendor', 'payable'];
+    private const EQUITY_TYPES    = ['equity'];
+    private const REVENUE_TYPES   = ['revenue'];
+    private const COGS_TYPES      = ['cogs'];
+    private const EXPENSE_TYPES   = ['expense', 'expenses'];
+
     public function accounts(Request $request)
     {
         $from   = $request->from_date ?? Carbon::now()->startOfMonth()->toDateString();
@@ -25,7 +33,7 @@ class AccountsReportController extends Controller
 
         $reportData = match ($report) {
             'general_ledger'   => $this->generalLedger($accountId, $from, $to),
-            'trial_balance'    => $this->trialBalance($from, $to),
+            'trial_balance'    => $this->trialBalance(null, $to),   // as of To date
             'profit_loss'      => $this->profitLoss($from, $to),
             'balance_sheet'    => $this->balanceSheet($from, $to),
             'party_ledger'     => $this->partyLedger($from, $to, $accountId),
@@ -92,6 +100,30 @@ class AccountsReportController extends Controller
         return $account ? $this->partyOpeningBalance($account) : 0;
     }
 
+    /**
+     * Balance brought forward at the start of $from (signed, + = DR):
+     * the account's opening balance from COA + every voucher dated before $from.
+     */
+    private function balanceBefore(int|array $accountIds, string $from): float
+    {
+        $ids = (array) $accountIds;
+        $opening = ChartOfAccounts::whereIn('id', $ids)->get()->sum(fn ($a) => $this->partyOpeningBalance($a));
+        $dr = (float) Voucher::whereIn('ac_dr_sid', $ids)->where('date', '<', $from)->sum('amount');
+        $cr = (float) Voucher::whereIn('ac_cr_sid', $ids)->where('date', '<', $from)->sum('amount');
+        return $opening + $dr - $cr;
+    }
+
+    private function openingRow(float $balance, string $from, array $extra): array
+    {
+        return array_merge([
+            'date'       => $from,
+            'debit'      => $balance > 0 ? $this->fmt($balance) : '0.00',
+            'credit'     => $balance < 0 ? $this->fmt(abs($balance)) : '0.00',
+            'balance'    => '0.00',
+            'balance_dr' => true,
+        ], $extra);
+    }
+
     // ── Voucher type label ────────────────────────────────────────────
     private function voucherLabel(Voucher $v): string
     {
@@ -101,21 +133,45 @@ class AccountsReportController extends Controller
             'sale'                 => 'Sale',
             'sale_return'          => 'Sale Return',
             'production'           => 'Production Order',
-            'production_receiving' => 'Production Receiving',
+            'production_receiving' => 'FG Receiving (CMT)',
             'production_return'    => 'Production Return',
             'production_wastage'   => 'Wastage Return',
             'receipt'              => 'Receipt',
             'payment'              => 'Payment',
             'journal'              => 'Journal',
             'contra'               => 'Contra',
-            'stock_transfer'       => 'Stock Transfer',
+            'stock_transfer'       => 'Stock Movement',
+            'stock_adjustment'     => 'Stock Adjustment',
+            'pdc'                  => 'PDC Cheque',
         ];
 
         $label   = $typeMap[$v->voucher_type] ?? ucwords(str_replace('_', ' ', $v->voucher_type));
-        $refId   = $v->source_id ?? $v->id;
+        $refId   = $this->documentNo($v) ?? ($v->source_id ?? $v->id);
         $remarks = $v->remarks ? ' — ' . Str::limit($v->remarks, 50) : '';
 
-        return $label . ' #' . $refId . $remarks;
+        return $label . ' ' . (str_contains((string) $refId, '-') ? $refId : '#' . $refId) . $remarks;
+    }
+
+    /** Document number of the voucher's source (PUR-00001, GRN-00001, SI-00001 …), cached per request. */
+    private function documentNo(Voucher $v): ?string
+    {
+        static $cache = [];
+        if (!$v->source_type || !$v->source_id) return null;
+        $cols = [
+            \App\Models\PurchaseInvoice::class     => 'invoice_no',
+            \App\Models\PurchaseReturn::class      => 'return_no',
+            \App\Models\ProductionReceiving::class => 'grn_no',
+            \App\Models\SaleInvoice::class         => 'invoice_no',
+            \App\Models\StockAdjustment::class     => 'adj_no',
+            \App\Models\PdcCheque::class           => 'pdc_no',
+        ];
+        $col = $cols[$v->source_type] ?? null;
+        if (!$col) return null;
+        $key = $v->source_type . '#' . $v->source_id;
+        if (!array_key_exists($key, $cache)) {
+            $cache[$key] = \Illuminate\Support\Facades\DB::table((new $v->source_type)->getTable())->where('id', $v->source_id)->value($col);
+        }
+        return $cache[$key];
     }
 
     // ── 1. General Ledger ─────────────────────────────────────────────
@@ -123,8 +179,7 @@ class AccountsReportController extends Controller
     {
         if (!$accountId) return [];
 
-        $account        = ChartOfAccounts::find($accountId);
-        $openingBalance = $account ? $this->partyOpeningBalance($account) : 0;
+        $openingBalance = $this->balanceBefore($accountId, $from);
 
         $vouchers = Voucher::with(['debitAccount', 'creditAccount'])
             ->whereBetween('date', [$from, $to])
@@ -151,28 +206,25 @@ class AccountsReportController extends Controller
             ];
         })->toArray();
 
-        // Prepend an opening balance row if non-zero
-        if ($openingBalance != 0) {
-            array_unshift($rows, [
-                'date'       => $from,
-                'voucher'    => 'Opening Balance',
-                'account'    => '-',
-                'debit'      => $openingBalance > 0 ? $this->fmt($openingBalance) : '0.00',
-                'credit'     => $openingBalance < 0 ? $this->fmt(abs($openingBalance)) : '0.00',
-                'balance'    => '0.00',
-                'balance_dr' => true,
-            ]);
+        // Opening = COA opening balance + everything before the From date
+        if (round($openingBalance, 2) != 0) {
+            array_unshift($rows, $this->openingRow($openingBalance, $from, ['voucher' => 'Opening Balance (b/f)', 'account' => '-']));
         }
 
         return $this->runningBalance($rows);
     }
 
     // ── 2. Trial Balance ──────────────────────────────────────────────
-    private function trialBalance(string $from, string $to): \Illuminate\Support\Collection
+    /**
+     * Trial balance as of $to (all history incl. opening balances).
+     * Pass $from to get movement for a period only (used by Profit & Loss).
+     */
+    private function trialBalance(?string $from, string $to, bool $withOpening = true): \Illuminate\Support\Collection
     {
         $debits = DB::table('vouchers')
             ->join('chart_of_accounts as coa', 'vouchers.ac_dr_sid', '=', 'coa.id')
-            ->whereBetween('vouchers.date', [$from, $to])
+            ->when($from, fn ($q) => $q->where('vouchers.date', '>=', $from))
+            ->where('vouchers.date', '<=', $to)
             ->whereNull('vouchers.deleted_at')
             ->select(
                 'coa.id', 'coa.account_code', 'coa.name', 'coa.account_type',
@@ -183,7 +235,8 @@ class AccountsReportController extends Controller
 
         $credits = DB::table('vouchers')
             ->join('chart_of_accounts as coa', 'vouchers.ac_cr_sid', '=', 'coa.id')
-            ->whereBetween('vouchers.date', [$from, $to])
+            ->when($from, fn ($q) => $q->where('vouchers.date', '>=', $from))
+            ->where('vouchers.date', '<=', $to)
             ->whereNull('vouchers.deleted_at')
             ->select(
                 'coa.id', 'coa.account_code', 'coa.name', 'coa.account_type',
@@ -208,7 +261,7 @@ class AccountsReportController extends Controller
             });
 
         // ── Fold in opening balances for vendor/customer accounts ──────
-        $partyAccounts = ChartOfAccounts::whereIn('account_type', ['customer', 'vendor'])->get();
+        $partyAccounts = $withOpening ? ChartOfAccounts::whereIn('account_type', ['customer', 'vendor'])->get() : collect();
 
         foreach ($partyAccounts as $account) {
             $opening = $this->partyOpeningBalance($account);
@@ -236,6 +289,20 @@ class AccountsReportController extends Controller
             ]);
         }
 
+        // Party opening balances are entered one-sided on COA — put the other side in an
+        // "Opening Balances (parties)" equity line so the trial balance balances.
+        $partyOpening = $partyAccounts->sum(fn ($a) => $this->partyOpeningBalance($a));
+        if (round($partyOpening, 2) != 0) {
+            $voucherTotals->put('opening', [
+                'id'           => 0,
+                'account_code' => '3-OPEN',
+                'account'      => 'Opening Balances (parties)',
+                'account_type' => 'equity',
+                'debit'        => $partyOpening < 0 ? abs($partyOpening) : 0,
+                'credit'       => $partyOpening > 0 ? $partyOpening : 0,
+            ]);
+        }
+
         return $voucherTotals
             ->map(function ($row) {
                 $net = $row['debit'] - $row['credit'];
@@ -254,17 +321,17 @@ class AccountsReportController extends Controller
     }
 
     // ── 3. Profit & Loss ──────────────────────────────────────────────
-    private function profitLoss(string $from, string $to): array
+    private function profitLoss(?string $from, string $to): array
     {
-        $trial = $this->trialBalance($from, $to);
+        $trial = $this->trialBalance($from, $to, false);
 
-        $revenue = $trial->whereIn('account_type', ['revenue'])
+        $revenue = $trial->whereIn('account_type', self::REVENUE_TYPES)
             ->sum(fn($r) => $this->unformat($r['credit']) - $this->unformat($r['debit']));
 
-        $cogs = $trial->whereIn('account_type', ['cogs'])
+        $cogs = $trial->whereIn('account_type', self::COGS_TYPES)
             ->sum(fn($r) => $this->unformat($r['debit']) - $this->unformat($r['credit']));
 
-        $expenses = $trial->whereIn('account_type', ['expense'])
+        $expenses = $trial->whereIn('account_type', self::EXPENSE_TYPES)
             ->sum(fn($r) => $this->unformat($r['debit']) - $this->unformat($r['credit']));
 
         $grossProfit = $revenue - $cogs;
@@ -273,7 +340,7 @@ class AccountsReportController extends Controller
         $rows = [];
 
         $rows[] = ['particulars' => '── REVENUE ──', 'amount' => '', 'section' => 'header'];
-        foreach ($trial->whereIn('account_type', ['revenue']) as $r) {
+        foreach ($trial->whereIn('account_type', self::REVENUE_TYPES) as $r) {
             $amt = $this->unformat($r['credit']) - $this->unformat($r['debit']);
             if ($amt != 0) {
                 $rows[] = ['particulars' => '  ' . $r['account'], 'amount' => $this->fmt($amt), 'section' => 'revenue'];
@@ -282,7 +349,7 @@ class AccountsReportController extends Controller
         $rows[] = ['particulars' => 'Total Revenue', 'amount' => $this->fmt($revenue), 'section' => 'subtotal'];
 
         $rows[] = ['particulars' => '── COST OF GOODS SOLD ──', 'amount' => '', 'section' => 'header'];
-        foreach ($trial->whereIn('account_type', ['cogs']) as $r) {
+        foreach ($trial->whereIn('account_type', self::COGS_TYPES) as $r) {
             $amt = $this->unformat($r['debit']) - $this->unformat($r['credit']);
             if ($amt != 0) {
                 $rows[] = ['particulars' => '  ' . $r['account'], 'amount' => $this->fmt($amt), 'section' => 'cogs'];
@@ -293,7 +360,7 @@ class AccountsReportController extends Controller
         $rows[] = ['particulars' => 'GROSS PROFIT', 'amount' => $this->fmt($grossProfit), 'section' => 'gross'];
 
         $rows[] = ['particulars' => '── OPERATING EXPENSES ──', 'amount' => '', 'section' => 'header'];
-        foreach ($trial->whereIn('account_type', ['expense']) as $r) {
+        foreach ($trial->whereIn('account_type', self::EXPENSE_TYPES) as $r) {
             $amt = $this->unformat($r['debit']) - $this->unformat($r['credit']);
             if ($amt != 0) {
                 $rows[] = ['particulars' => '  ' . $r['account'], 'amount' => $this->fmt($amt), 'section' => 'expense'];
@@ -309,11 +376,12 @@ class AccountsReportController extends Controller
     // ── 4. Balance Sheet ──────────────────────────────────────────────
     private function balanceSheet(string $from, string $to): array
     {
-        $trial = $this->trialBalance($from, $to);
+        // Balance sheet is a position AS OF $to — cumulative, not just the period
+        $trial = $this->trialBalance(null, $to);
 
-        $assetTypes     = ['asset', 'cash', 'bank', 'customer'];
-        $liabilityTypes = ['liability', 'vendor'];
-        $equityTypes    = ['equity'];
+        $assetTypes     = self::ASSET_TYPES;
+        $liabilityTypes = self::LIABILITY_TYPES;
+        $equityTypes    = self::EQUITY_TYPES;
 
         $assets = $trial->whereIn('account_type', $assetTypes)
             ->map(fn($r) => [
@@ -339,11 +407,13 @@ class AccountsReportController extends Controller
                 ),
             ])->filter(fn($r) => $this->unformat($r['amount']) != 0)->values();
 
-        $plData    = $this->profitLoss($from, $to);
+        // Accumulated profit up to $to
+        $plData    = $this->profitLoss(null, $to);
         $netProfit = collect($plData)->firstWhere('section', 'net');
         if ($netProfit && $this->unformat($netProfit['amount']) != 0) {
-            $equity->push(['name' => 'Net Profit / (Loss)', 'amount' => $netProfit['amount']]);
+            $equity->push(['name' => 'Profit / (Loss) to date', 'amount' => $netProfit['amount']]);
         }
+
 
         $liabsAndEquity = $liabilities->concat($equity)->values();
 
@@ -418,21 +488,13 @@ class AccountsReportController extends Controller
         // Only meaningful to prepend an opening balance when viewing a single account
         $openingBalance = 0;
         if ($accountId) {
-            $openingBalance = $this->partyOpeningBalanceById($accountId);
+            $openingBalance = $this->balanceBefore($accountId, $from);
 
-            if ($openingBalance != 0) {
+            if (round($openingBalance, 2) != 0) {
                 $account = ChartOfAccounts::find($accountId);
-                array_unshift($rows, [
-                    'date'       => $from,
-                    'party'      => $account->name ?? '-',
-                    'voucher'    => 'Opening Balance',
-                    'debit'      => $openingBalance > 0 ? $this->fmt($openingBalance) : '0.00',
-                    'credit'     => $openingBalance < 0 ? $this->fmt(abs($openingBalance)) : '0.00',
-                    'balance'    => '0.00',
-                    'balance_dr' => true,
-                ]);
-                $openingBalance = 0; // already injected as a row; don't double-count in runningBalance seed
+                array_unshift($rows, $this->openingRow($openingBalance, $from, ['party' => $account->name ?? '-', 'voucher' => 'Opening Balance (b/f)']));
             }
+            $openingBalance = 0; // injected as a row
         }
 
         return collect($this->runningBalance($rows, $openingBalance));
@@ -445,14 +507,9 @@ class AccountsReportController extends Controller
             ->get(['id', 'name', 'account_type', 'receivables', 'payables']);
 
         return $accounts->map(function ($account) use ($from, $to) {
-            $totalDebit  = (float) Voucher::where('ac_dr_sid', $account->id)
-                ->whereBetween('date', [$from, $to])
-                ->whereNull('deleted_at')
-                ->sum('amount');
-            $totalCredit = (float) Voucher::where('ac_cr_sid', $account->id)
-                ->whereBetween('date', [$from, $to])
-                ->whereNull('deleted_at')
-                ->sum('amount');
+            // outstanding AS OF $to: opening + every voucher up to $to
+            $totalDebit  = (float) Voucher::where('ac_dr_sid', $account->id)->where('date', '<=', $to)->sum('amount');
+            $totalCredit = (float) Voucher::where('ac_cr_sid', $account->id)->where('date', '<=', $to)->sum('amount');
 
             $opening = $this->partyOpeningBalance($account);
             $balance = $opening + $totalDebit - $totalCredit;
@@ -462,7 +519,7 @@ class AccountsReportController extends Controller
 
             $label = $account->name;
             if ($account->account_type === 'vendor') {
-                $label .= ' (Vendor — Leather Sale)';
+                $label .= ' (Vendor — debit balance / advance)';
             }
 
             return [
@@ -486,14 +543,9 @@ class AccountsReportController extends Controller
             ->get(['id', 'name', 'account_type', 'receivables', 'payables']);
 
         return $accounts->map(function ($account) use ($from, $to) {
-            $totalDebit  = (float) Voucher::where('ac_dr_sid', $account->id)
-                ->whereBetween('date', [$from, $to])
-                ->whereNull('deleted_at')
-                ->sum('amount');
-            $totalCredit = (float) Voucher::where('ac_cr_sid', $account->id)
-                ->whereBetween('date', [$from, $to])
-                ->whereNull('deleted_at')
-                ->sum('amount');
+            // outstanding AS OF $to: opening + every voucher up to $to
+            $totalDebit  = (float) Voucher::where('ac_dr_sid', $account->id)->where('date', '<=', $to)->sum('amount');
+            $totalCredit = (float) Voucher::where('ac_cr_sid', $account->id)->where('date', '<=', $to)->sum('amount');
 
             $opening = $this->partyOpeningBalance($account); // positive = DR, negative = CR
             $balance = $totalCredit - $totalDebit - $opening;
@@ -565,6 +617,11 @@ class AccountsReportController extends Controller
                 ];
             })->toArray();
 
+        $opening = $this->balanceBefore($cashIds->all(), $from);
+        if (round($opening, 2) != 0) {
+            array_unshift($rows, $this->openingRow($opening, $from, ['particulars' => 'Opening Balance (b/f)']));
+        }
+
         return $this->runningBalance($rows);
     }
 
@@ -597,6 +654,11 @@ class AccountsReportController extends Controller
                 ];
             })->toArray();
 
+        $opening = $this->balanceBefore($bankIds->all(), $from);
+        if (round($opening, 2) != 0) {
+            array_unshift($rows, $this->openingRow($opening, $from, ['bank' => 'Opening Balance (b/f)']));
+        }
+
         return $this->runningBalance($rows);
     }
 
@@ -626,9 +688,9 @@ class AccountsReportController extends Controller
     // ── 11. Expense Analysis ──────────────────────────────────────────
     private function expenseAnalysis(string $from, string $to): \Illuminate\Support\Collection
     {
-        $trial = $this->trialBalance($from, $to);
+        $trial = $this->trialBalance($from, $to, false);
 
-        return $trial->whereIn('account_type', ['expense', 'cogs'])
+        return $trial->whereIn('account_type', array_merge(self::EXPENSE_TYPES, self::COGS_TYPES))
             ->map(fn($r) => [
                 'expense_head' => $r['account_code'] . ' — ' . $r['account'],
                 'account_type' => $r['account_type'],
@@ -654,7 +716,7 @@ class AccountsReportController extends Controller
 
         $operatingOut = (float) Voucher::whereBetween('date', [$from, $to])
             ->whereIn('ac_cr_sid', $cashBankIds)
-            ->whereIn('voucher_type', ['purchase', 'payment', 'purchase_return'])
+            ->whereIn('voucher_type', ['purchase', 'payment', 'purchase_return', 'pdc'])
             ->whereNull('deleted_at')
             ->sum('amount');
 
@@ -688,7 +750,7 @@ class AccountsReportController extends Controller
                 'net flow' => $this->fmt($operatingIn),
             ],
             [
-                'activity' => 'Operating — Purchases & Payments',
+                'activity' => 'Operating — Purchases, Payments & Cleared PDCs',
                 'inflows'  => '0.00',
                 'outflows' => $this->fmt($operatingOut),
                 'net flow' => $this->fmt(-$operatingOut),

@@ -58,6 +58,7 @@ class SaleInvoiceController extends Controller
             'items.*.unit'            => 'required|exists:measurement_units,id',
             'items.*.sale_price'      => 'required|numeric|min:0',
             'items.*.discount'        => 'nullable|numeric|min:0|max:100',
+            'items.*.discount_amount' => 'nullable|numeric|min:0',
             // Payment (optional at creation)
             'payment_account_id'      => 'nullable|exists:chart_of_accounts,id',
             'payment_amount'          => 'nullable|numeric|min:0',
@@ -161,6 +162,7 @@ class SaleInvoiceController extends Controller
             'items.*.unit'         => 'required|exists:measurement_units,id',
             'items.*.sale_price'   => 'required|numeric|min:0',
             'items.*.discount'     => 'nullable|numeric|min:0|max:100',
+            'items.*.discount_amount' => 'nullable|numeric|min:0',
         ]);
 
         $this->assertStock($request, SaleInvoice::findOrFail($id));
@@ -391,7 +393,7 @@ class SaleInvoiceController extends Controller
                 <td>' . ($item->variation->sku ?? '-') . '</td>
                 <td>' . number_format($item->quantity, 2) . ' ' . ($item->measurementUnit->shortcode ?? '') . '</td>
                 <td align="right">' . number_format($item->sale_price, 2) . '</td>
-                <td>' . ($item->discount ?? 0) . '%</td>
+                <td>' . ($item->discount ?? 0) . '%' . (($item->discount_amount ?? 0) > 0 ? '<br>-' . number_format($item->discount_amount, 2) : '') . '</td>
                 <td align="right">' . number_format($lineTotal, 2) . '</td>
             </tr>';
         }
@@ -434,8 +436,9 @@ class SaleInvoiceController extends Controller
         foreach ($items as $item) {
             $price    = (float)($item['sale_price'] ?? 0);
             $disc     = (float)($item['discount']   ?? 0);
+            $discAmt  = (float)($item['discount_amount'] ?? 0);
             $qty      = (float)($item['quantity']   ?? 0);
-            $total   += ($price - ($price * $disc / 100)) * $qty;
+            $total   += SaleInvoiceItem::netUnitPrice($price, $disc, $discAmt) * $qty;
         }
         return round($total, 2);
     }
@@ -461,6 +464,7 @@ class SaleInvoiceController extends Controller
                 'item_name'    => $productNames[$item['product_id']] ?? null,
                 'sale_price'   => $item['sale_price']   ?? 0,
                 'discount'     => $item['discount']     ?? 0,
+                'discount_amount' => $item['discount_amount'] ?? 0,
                 'quantity'     => $item['quantity']     ?? 0,
                 'unit'         => $item['unit'],
                 'remarks'      => $item['item_remarks'] ?? null,

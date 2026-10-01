@@ -58,6 +58,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/product/{product}/variations',         [ProductController::class, 'getVariations'])->name('product.variations');
     Route::get('/product/{product}/variations2',        [ProductController::class, 'getVariations2'])->name('product.variations2');
     Route::get('/product/{product}/productions',        [ProductionController::class, 'getProductProductions'])->name('product.productions');
+    // Fabric → articles consumption setup (raw items)
+    Route::get('/products/{product}/articles',         [\App\Http\Controllers\FabricArticleController::class, 'index'])->name('products.fabric-articles')->middleware('check.permission:products.edit');
+    Route::post('/products/{product}/articles',        [\App\Http\Controllers\FabricArticleController::class, 'store'])->name('products.fabric-articles.store')->middleware('check.permission:products.edit');
+    Route::post('/products/{product}/articles/import', [\App\Http\Controllers\FabricArticleController::class, 'import'])->name('products.fabric-articles.import')->middleware('check.permission:products.edit');
+    Route::get('/fabric-options',                      [\App\Http\Controllers\FabricArticleController::class, 'optionsForArticle'])->name('fabric.options');
     Route::get('/products/next-sku/{category}',          [ProductController::class, 'nextSku'])->name('products.next-sku');
     Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
 

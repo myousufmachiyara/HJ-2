@@ -32,7 +32,7 @@
     <li class="nav-item">
       <a class="nav-link {{ $tab=='STR'?'active':'' }}"
          href="{{ route('reports.inventory') }}?tab=STR&from_date={{ $from }}&to_date={{ $to }}">
-        <i class="fas fa-exchange-alt me-1"></i> Stock Transfer
+        <i class="fas fa-exchange-alt me-1"></i> Stock Movement
       </a>
     </li>
     <li class="nav-item">
@@ -51,36 +51,43 @@
 
   <div class="tab-content mt-3">
 
-    {{-- ── 1. ITEM LEDGER ───────────────────────────────────────── --}}
+    {{-- ── 1. ITEM LEDGER (stock ledger) ────────────────────────── --}}
     @if($tab === 'IL')
       <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
         <input type="hidden" name="tab" value="IL">
         <div class="row g-2 align-items-end">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label>Product / Variation</label>
             <select name="item_id" class="form-control select2-js">
               <option value="">-- Select a product --</option>
               @foreach($products as $product)
-                <option value="{{ $product->id }}"
-                  {{ request('item_id') == $product->id ? 'selected' : '' }}>
-                  {{ $product->name }}
-                </option>
+                <option value="{{ $product->id }}" {{ request('item_id') == $product->id ? 'selected' : '' }}>{{ $product->name }} ({{ $product->sku }}) — all sizes</option>
                 @foreach($product->variations as $var)
-                  <option value="{{ $product->id }}-{{ $var->id }}"
-                    {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>
-                    &nbsp;&nbsp;↳ {{ $product->name }} ({{ $var->sku }})
-                  </option>
+                  <option value="{{ $product->id }}-{{ $var->id }}" {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>&nbsp;&nbsp;↳ {{ $var->sku }}</option>
                 @endforeach
+              @endforeach
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label>Location</label>
+            <select name="location_id" class="form-control select2-js">
+              <option value="">-- All locations --</option>
+              @foreach($locations->groupBy(fn($l) => $l->typeLabel()) as $group => $locs)
+                <optgroup label="{{ $group }}">
+                  @foreach($locs as $loc)
+                    <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  @endforeach
+                </optgroup>
               @endforeach
             </select>
           </div>
           <div class="col-md-2">
             <label>From</label>
-            <input type="date" name="from_date" value="{{ request('from_date', $from) }}" class="form-control">
+            <input type="date" name="from_date" value="{{ $from }}" class="form-control">
           </div>
           <div class="col-md-2">
             <label>To</label>
-            <input type="date" name="to_date" value="{{ request('to_date', $to) }}" class="form-control">
+            <input type="date" name="to_date" value="{{ $to }}" class="form-control">
           </div>
           <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">Filter</button>
@@ -90,175 +97,109 @@
 
       @if($itemLedger->count())
         @php
-          $totalIn  = $itemLedger->sum('qty_in');
-          $totalOut = $itemLedger->sum('qty_out');
-          $totalWO  = $itemLedger->sum('writeoff_qty');
-          $balance  = $totalIn - $totalOut;
-
-          $openingRow      = $itemLedger->firstWhere('type', 'Opening Balance');
-          $openingQty      = $openingRow
-              ? ($openingRow['qty_in'] > 0 ? $openingRow['qty_in'] : -$openingRow['qty_out'])
-              : 0;
+          $opening  = $itemLedger->firstWhere('type', 'Opening Balance');
+          $movement = $itemLedger->where('type', '!=', 'Opening Balance');
+          $totalIn  = $movement->sum('qty_in');
+          $totalOut = $movement->sum('qty_out');
+          $closing  = $itemLedger->last()['balance'];
+          $badges = [
+            'Opening Balance' => 'bg-info text-dark', 'Purchase' => 'bg-success', 'Purchase Return' => 'bg-warning text-dark',
+            'FG Receiving' => 'bg-primary', 'Fabric Consumed' => 'bg-secondary', 'Movement In' => 'bg-info text-dark',
+            'Movement Out' => 'bg-info text-dark', 'Sale' => 'bg-danger', 'POS Sale' => 'bg-danger', 'Sale Return' => 'bg-success',
+            'Opening Stock' => 'bg-dark', 'Stock Count' => 'bg-dark', 'Adjustment' => 'bg-dark',
+          ];
         @endphp
 
-        @if($openingRow)
-          <div class="alert alert-secondary d-flex justify-content-between align-items-center mb-3">
-            <div>
-              <i class="fas fa-history me-1"></i>
-              <strong>Opening Balance</strong> as of {{ \Carbon\Carbon::parse($from)->subDay()->format('d-M-Y') }}:
-              <strong class="{{ $openingQty >= 0 ? 'text-success' : 'text-danger' }}">
-                {{ number_format(abs($openingQty), 2) }} {{ $openingQty >= 0 ? '(IN)' : '(negative)' }}
-              </strong>
-            </div>
-            <small class="text-muted">All movements before the selected From Date are summarized into this single row.</small>
-          </div>
-        @endif
-
-        <div class="row mb-3">
-          <div class="col">
-            <div class="d-flex flex-wrap gap-2">
-              <span class="badge bg-info text-dark">Opening Balance → B/F</span>
-              <span class="badge bg-success">Purchase → IN</span>
-              <span class="badge bg-warning text-dark">Purchase Return → OUT</span>
-              <span class="badge bg-danger">Sale → OUT</span>
-              <span class="badge bg-info text-dark">Sale Return → IN</span>
-              <span class="badge bg-secondary">Production Order → raw OUT</span>
-              <span class="badge bg-primary">Production Receiving → FG IN</span>
-              <span class="badge bg-danger">Production Return → FG OUT</span>
-              <span class="badge bg-success">Wastage Return (Extra) → raw IN</span>
-              <span class="badge bg-dark">Wastage Return (W/O) → Write-off</span>
-            </div>
-          </div>
-          <div class="col-auto text-end">
-            <span class="me-3">Total In: <strong class="text-success">{{ number_format($totalIn, 2) }}</strong></span>
-            <span class="me-3">Total Out: <strong class="text-danger">{{ number_format($totalOut, 2) }}</strong></span>
-            @if($totalWO > 0)
-              <span class="me-3">Write-offs: <strong class="text-dark">{{ number_format($totalWO, 2) }}</strong></span>
-            @endif
-            <span>Balance: <strong class="text-primary">{{ number_format($balance, 2) }}</strong></span>
-          </div>
+        <div class="d-flex justify-content-end flex-wrap gap-3 mb-2">
+          <span>Opening: <strong>{{ number_format($opening['balance'] ?? 0, 2) }}</strong></span>
+          <span>In: <strong class="text-success">{{ number_format($totalIn, 2) }}</strong></span>
+          <span>Out: <strong class="text-danger">{{ number_format($totalOut, 2) }}</strong></span>
+          <span>Closing: <strong class="text-primary">{{ number_format($closing, 2) }}</strong></span>
         </div>
 
         <div class="table-responsive">
           <table class="table table-bordered table-striped table-sm" id="ilTable">
             <thead class="table-light">
               <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Description</th>
-                <th>Product</th>
-                <th>Variation</th>
-                <th class="text-end">Qty In</th>
-                <th class="text-end">Qty Out</th>
-                <th class="text-end">Write-off</th>
-                <th class="text-end">Rate</th>
+                <th>Date</th><th>Type</th><th>Document</th><th>Location</th><th>Variation</th>
+                <th class="text-end">Qty In</th><th class="text-end">Qty Out</th><th class="text-end">Rate</th><th class="text-end">Balance</th>
               </tr>
             </thead>
             <tbody>
               @foreach($itemLedger as $row)
-                @php
-                  $typeMap = [
-                    'Opening Balance'           => ['bg-info text-dark',    'B/F'],
-                    'Purchase'                  => ['bg-success',          'IN'],
-                    'Purchase Return'           => ['bg-warning text-dark','OUT'],
-                    'Sale'                      => ['bg-danger',           'OUT'],
-                    'Sale Return'               => ['bg-info text-dark',   'IN'],
-                    'Production Order'          => ['bg-secondary',        'raw OUT'],
-                    'Production Receiving'      => ['bg-primary',          'FG IN'],
-                    'Production Return'         => ['bg-danger',           'FG OUT'],
-                    'Wastage Return (Extra)'    => ['bg-success',          'raw IN'],
-                    'Wastage Return (W/O)'      => ['bg-dark',             'Write-off'],
-                  ];
-                  $badge      = $typeMap[$row['type']] ?? ['bg-secondary', ''];
-                  $isOpening  = $row['type'] === 'Opening Balance';
-                  $isWriteoff = $row['is_writeoff'] ?? false;
-                  $rowClass   = $isOpening ? 'table-secondary fw-bold' : (
-                    $isWriteoff ? 'table-dark' : (
-                      in_array($row['type'], ['Production Order', 'Sale', 'Purchase Return', 'Production Return'])
-                        ? 'table-danger' : ''
-                    )
-                  );
-                @endphp
-                <tr class="{{ $rowClass }}">
-                  <td>{{ \Carbon\Carbon::parse($row['date'])->format('d-M-Y') }}</td>
-                  <td>
-                    <span class="badge {{ $badge[0] }}">{{ $row['type'] }}</span>
-                    <small class="text-muted">({{ $badge[1] }})</small>
-                  </td>
-                  <td><small>{{ $row['description'] }}</small></td>
-                  <td>{{ $row['product'] }}</td>
+                <tr class="{{ $row['type'] === 'Opening Balance' ? 'table-secondary fw-bold' : '' }}">
+                  <td data-order="{{ $row['date'] }}">{{ \Carbon\Carbon::parse($row['date'])->format('d-M-Y') }}</td>
+                  <td><span class="badge {{ $badges[$row['type']] ?? 'bg-secondary' }}">{{ $row['type'] }}</span></td>
+                  <td>{{ $row['document'] }}</td>
+                  <td>{{ $row['location'] }}</td>
                   <td>{{ $row['variation'] ?? '—' }}</td>
-                  <td class="text-end text-success fw-bold">
-                    {{ $row['qty_in'] > 0 ? number_format($row['qty_in'], 2) : '—' }}
-                  </td>
-                  <td class="text-end text-danger fw-bold">
-                    {{ $row['qty_out'] > 0 ? number_format($row['qty_out'], 2) : '—' }}
-                  </td>
-                  <td class="text-end">
-                    @if($isWriteoff && ($row['writeoff_qty'] ?? 0) > 0)
-                      <span class="badge bg-dark">{{ number_format($row['writeoff_qty'], 2) }}</span>
-                    @else
-                      <span class="text-muted">—</span>
-                    @endif
-                  </td>
+                  <td class="text-end text-success">{{ $row['qty_in'] > 0 ? number_format($row['qty_in'], 2) : '—' }}</td>
+                  <td class="text-end text-danger">{{ $row['qty_out'] > 0 ? number_format($row['qty_out'], 2) : '—' }}</td>
                   <td class="text-end">{{ $row['rate'] > 0 ? number_format($row['rate'], 2) : '—' }}</td>
+                  <td class="text-end fw-bold {{ $row['balance'] < 0 ? 'text-danger' : '' }}">{{ number_format($row['balance'], 2) }}</td>
                 </tr>
               @endforeach
             </tbody>
             <tfoot class="table-light fw-bold">
               <tr>
-                <td colspan="5" class="text-end">Totals</td>
+                <td colspan="5" class="text-end">Totals (period)</td>
                 <td class="text-end text-success">{{ number_format($totalIn, 2) }}</td>
                 <td class="text-end text-danger">{{ number_format($totalOut, 2) }}</td>
-                <td class="text-end">{{ $totalWO > 0 ? number_format($totalWO, 2) : '—' }}</td>
-                <td></td>
-              </tr>
-              <tr>
-                <td colspan="5" class="text-end">Closing Balance (Real Stock)</td>
-                <td colspan="4" class="text-primary fw-bold">{{ number_format($balance, 2) }}</td>
+                <td class="text-end">Closing</td>
+                <td class="text-end text-primary">{{ number_format($closing, 2) }}</td>
               </tr>
             </tfoot>
           </table>
         </div>
+      @elseif(request('item_id'))
+        <div class="alert alert-warning">No stock movements for this item in the selected period / location.</div>
       @else
-        <div class="alert alert-info">
-          <i class="fas fa-info-circle me-1"></i>
-          Select a product above and click Filter to view the item ledger.
-        </div>
+        <div class="alert alert-info"><i class="fas fa-info-circle me-1"></i> Select a product and click Filter to view its stock ledger.</div>
       @endif
     @endif
 
-    {{-- ── 2. STOCK IN HAND ────────────────────────────────────── --}}
+    {{-- ── 2. STOCK IN HAND (stock ledger) ──────────────────────── --}}
     @if($tab === 'SR')
       <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
         <input type="hidden" name="tab" value="SR">
         <div class="row g-2 align-items-end">
-          <div class="col-md-4">
+          <div class="col-md-3">
             <label>Product / Variation</label>
             <select name="item_id" class="form-control select2-js">
               <option value="">-- All Products --</option>
               @foreach($products as $product)
-                <option value="{{ $product->id }}"
-                  {{ request('item_id') == $product->id ? 'selected' : '' }}>
-                  {{ $product->name }}
-                </option>
+                <option value="{{ $product->id }}" {{ request('item_id') == $product->id ? 'selected' : '' }}>{{ $product->name }} ({{ $product->sku }}) — all sizes</option>
                 @foreach($product->variations as $var)
-                  <option value="{{ $product->id }}-{{ $var->id }}"
-                    {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>
-                    &nbsp;&nbsp;↳ {{ $product->name }} ({{ $var->sku }})
-                  </option>
+                  <option value="{{ $product->id }}-{{ $var->id }}" {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>&nbsp;&nbsp;↳ {{ $var->sku }}</option>
                 @endforeach
               @endforeach
             </select>
           </div>
           <div class="col-md-3">
-            <label>Costing Method</label>
-            <select name="costing_method" class="form-control select2-js">
-              <option value="avg"    {{ request('costing_method','avg') == 'avg'    ? 'selected':'' }}>Average Rate</option>
-              <option value="max"    {{ request('costing_method','avg') == 'max'    ? 'selected':'' }}>Max Rate</option>
-              <option value="min"    {{ request('costing_method','avg') == 'min'    ? 'selected':'' }}>Min Rate</option>
-              <option value="latest" {{ request('costing_method','avg') == 'latest' ? 'selected':'' }}>Latest Rate</option>
+            <label>Location</label>
+            <select name="location_id" class="form-control select2-js">
+              <option value="">-- All locations --</option>
+              @foreach($locations->groupBy(fn($l) => $l->typeLabel()) as $group => $locs)
+                <optgroup label="{{ $group }}">
+                  @foreach($locs as $loc)
+                    <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  @endforeach
+                </optgroup>
+              @endforeach
             </select>
+          </div>
+          <div class="col-md-2">
+            <label>Item Type</label>
+            <select name="item_type" class="form-control">
+              <option value="">All</option>
+              <option value="fg" {{ request('item_type') === 'fg' ? 'selected' : '' }}>Finished Goods</option>
+              <option value="raw" {{ request('item_type') === 'raw' ? 'selected' : '' }}>Raw / Fabric</option>
+              <option value="service" {{ request('item_type') === 'service' ? 'selected' : '' }}>Service</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label>As of</label>
+            <input type="date" name="to_date" value="{{ $to }}" class="form-control">
           </div>
           <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">Filter</button>
@@ -268,11 +209,8 @@
 
       <div class="alert alert-info mb-3">
         <i class="fas fa-info-circle me-1"></i>
-        Stock qty = Opening + Purchased + Sale Returns + FG Received + <strong>Extra Raw Returned</strong>
-        − Sold − Purchase Returns − Raw Issued − FG Returned.
-        <strong class="text-danger">Wastage write-offs are excluded</strong> —
-        see the <a href="{{ route('reports.inventory') }}?tab=WST">Wastage Stock</a> tab.
-        This is the <strong>company-wide total</strong> across all locations.
+        Quantities from the stock ledger ({{ request('location_id') ? 'selected location' : 'all locations: warehouses, marketplaces and fabric at CMTs' }}),
+        valued at weighted-average cost. For finished goods, <em>Mfg cost</em> is the CMT charge and <em>Raw cost</em> the fabric part.
       </div>
 
       @php
@@ -282,12 +220,14 @@
 
       <div class="row mb-3">
         <div class="col text-end">
-          @if(($atCustomersTotal ?? 0) > 0)
-            <span class="me-3">
-              Of which at customers:
-              <strong class="text-warning">{{ number_format($atCustomersTotal, 2) }}</strong>
-              <a href="{{ route('reports.inventory') }}?tab=LOC" class="small ms-1">(view breakdown →)</a>
-            </span>
+          @if(($atCustomersTotal ?? 0) != 0)
+            <span class="me-3">Of which at marketplaces / customers: <strong class="text-warning">{{ number_format($atCustomersTotal, 2) }}</strong></span>
+          @endif
+          @if(($atVendorsTotal ?? 0) != 0)
+            <span class="me-3">at vendors / CMT: <strong class="text-warning">{{ number_format($atVendorsTotal, 2) }}</strong></span>
+          @endif
+          @if(($atCustomersTotal ?? 0) != 0 || ($atVendorsTotal ?? 0) != 0)
+            <a href="{{ route('reports.inventory') }}?tab=LOC" class="small me-3">(by location →)</a>
           @endif
           <span class="me-3">Total Qty: <strong>{{ number_format($grandQty, 2) }}</strong></span>
           <span>Total Value: <strong class="text-danger fs-5">PKR {{ number_format($grandTotal, 0) }}</strong></span>
@@ -631,6 +571,7 @@
               <th>From</th>
               <th>To</th>
               <th class="text-end">Qty</th>
+              <th class="text-end">Value</th>
             </tr>
           </thead>
           <tbody>
@@ -655,16 +596,18 @@
                 <td>{{ $st['from'] }}</td>
                 <td>{{ $st['to'] }}</td>
                 <td class="text-end">{{ number_format($st['quantity'], 2) }}</td>
+                <td class="text-end">{{ number_format($st['value'] ?? 0, 2) }}</td>
               </tr>
             @empty
-              <tr><td colspan="8" class="text-center text-muted">No stock transfers found.</td></tr>
+              <tr><td colspan="9" class="text-center text-muted">No stock movements found.</td></tr>
             @endforelse
           </tbody>
           @if(count($stockTransfers))
             <tfoot class="table-light fw-bold">
               <tr>
-                <td colspan="7" class="text-end">Total Transferred</td>
+                <td colspan="7" class="text-end">Total Moved</td>
                 <td class="text-end">{{ number_format(collect($stockTransfers)->sum('quantity'), 2) }}</td>
+                <td class="text-end">{{ number_format(collect($stockTransfers)->sum('value'), 2) }}</td>
               </tr>
             </tfoot>
           @endif
@@ -677,9 +620,31 @@
       <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
         <input type="hidden" name="tab" value="NMI">
         <div class="row g-2 align-items-end">
-          <div class="col-md-4">
-            <label>No movement in last (months)</label>
+          <div class="col-md-3">
+            <label>Not sold in last (months)</label>
             <input type="number" name="months" value="{{ request('months', 3) }}" min="1" max="60" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label>Location</label>
+            <select name="location_id" class="form-control select2-js">
+              <option value="">-- All locations --</option>
+              @foreach($locations->groupBy(fn($l) => $l->typeLabel()) as $group => $locs)
+                <optgroup label="{{ $group }}">
+                  @foreach($locs as $loc)
+                    <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  @endforeach
+                </optgroup>
+              @endforeach
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label>Item Type</label>
+            <select name="item_type" class="form-control">
+              <option value="">All</option>
+              <option value="fg" {{ request('item_type') === 'fg' ? 'selected' : '' }}>Finished Goods</option>
+              <option value="raw" {{ request('item_type') === 'raw' ? 'selected' : '' }}>Raw / Fabric</option>
+              <option value="service" {{ request('item_type') === 'service' ? 'selected' : '' }}>Service</option>
+            </select>
           </div>
           <div class="col-md-2">
             <button type="submit" class="btn btn-primary w-100">Filter</button>
@@ -689,8 +654,8 @@
 
       <div class="alert alert-warning mb-3">
         <i class="fas fa-exclamation-triangle me-1"></i>
-        Items with stock on hand but no movement (purchase, sale, production) in the last
-        <strong>{{ request('months', 3) }} months</strong>.
+        Items with stock on hand that have <strong>not been sold</strong> in the last
+        <strong>{{ request('months', 3) }} months</strong> (stock movements between locations don't count as a sale).
       </div>
 
       <div class="table-responsive">
@@ -700,7 +665,7 @@
               <th>Product</th>
               <th>Variation</th>
               <th class="text-end">Stock Qty</th>
-              <th>Last Movement</th>
+              <th>Last Sale</th>
               <th class="text-end">Days Inactive</th>
             </tr>
           </thead>
@@ -713,7 +678,7 @@
                 <td class="text-end">{{ number_format($nmi['stock_qty'], 2) }}</td>
                 <td>
                   @if($nmi['last_date'] === 'Never')
-                    <span class="badge bg-danger">Never Moved</span>
+                    <span class="badge bg-danger">Never Sold</span>
                   @else
                     {{ \Carbon\Carbon::parse($nmi['last_date'])->format('d-M-Y') }}
                   @endif
@@ -737,9 +702,37 @@
 
     {{-- ── 6. REORDER LEVEL ────────────────────────────────────── --}}
     @if($tab === 'ROL')
+      <form method="GET" action="{{ route('reports.inventory') }}" class="mb-3">
+        <input type="hidden" name="tab" value="ROL">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label>Location</label>
+            <select name="location_id" class="form-control select2-js">
+              <option value="">-- All locations --</option>
+              @foreach($locations->groupBy(fn($l) => $l->typeLabel()) as $group => $locs)
+                <optgroup label="{{ $group }}">
+                  @foreach($locs as $loc)
+                    <option value="{{ $loc->id }}" {{ request('location_id') == $loc->id ? 'selected' : '' }}>{{ $loc->name }}</option>
+                  @endforeach
+                </optgroup>
+              @endforeach
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label>Item Type</label>
+            <select name="item_type" class="form-control">
+              <option value="">All</option>
+              <option value="fg" {{ request('item_type') === 'fg' ? 'selected' : '' }}>Finished Goods</option>
+              <option value="raw" {{ request('item_type') === 'raw' ? 'selected' : '' }}>Raw / Fabric</option>
+              <option value="service" {{ request('item_type') === 'service' ? 'selected' : '' }}>Service</option>
+            </select>
+          </div>
+          <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
+        </div>
+      </form>
       <div class="alert alert-danger mb-3">
         <i class="fas fa-exclamation-circle me-1"></i>
-        Items where <strong>current stock ≤ reorder level</strong>.
+        Items where <strong>stock ({{ request('location_id') ? 'at the selected location' : 'at all locations' }}) ≤ reorder level</strong>.
         Only products with a reorder level configured are shown.
       </div>
 

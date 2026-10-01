@@ -13,6 +13,12 @@
           <h2 class="card-title">Edit Product</h2>
         </header>
         <div class="card-body">
+          @if($product->item_type === 'raw')
+            <div class="alert alert-info py-2">
+              <i class="fas fa-scroll me-1"></i> Fabric: add one variation per <strong>PANNA</strong> below, then set the
+              <a href="{{ route('products.fabric-articles', $product->id) }}"><strong>articles made from this fabric &amp; consumption</strong></a>.
+            </div>
+          @endif
           @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
           @if ($errors->any())
             <div class="alert alert-danger">
@@ -91,20 +97,6 @@
             <div class="col-md-2 mt-3">
               <label>Weight</label>
               <input type="number" step="any" name="weight" class="form-control" value="{{ old('weight', $product->weight) }}">
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Fabric <small class="text-muted">(raw item used)</small></label>
-              <select name="fabric_id" class="form-control select2-js">
-                <option value="">-- None --</option>
-                @foreach($fabrics as $f)
-                  <option value="{{ $f->id }}" {{ old('fabric_id', $product->fabric_id) == $f->id ? 'selected' : '' }}>{{ $f->name }} ({{ $f->sku }})</option>
-                @endforeach
-              </select>
-              <small class="text-muted">Consumed at the CMT on FG receiving</small>
-            </div>
-            <div class="col-md-2 mt-3">
-              <label>Consumption <small class="text-muted">(fabric per pc)</small></label>
-              <input type="number" step="any" name="consumption" class="form-control" value="{{ old('consumption', $product->consumption) }}">
             </div>
             <div class="col-md-2 mt-3">
               <label>CMT Cost <small class="text-muted">(Making)</small></label>

@@ -27,7 +27,8 @@ class ItemsImportController extends Controller
         'quantity' => ['quantity', 'qty', 'counted', 'count'],
         'unit_id'  => ['unit id', 'unit'],
         'price'    => ['price', 'rate', 'sale price', 'unit price', 'cost', 'unit cost'],
-        'discount' => ['discount', 'disc'],
+        'discount' => ['discount', 'disc', 'discount %', 'disc %'],
+        'discount_amount' => ['discount rs', 'disc rs', 'discount amount', 'disc amount', 'discount rs/pc', 'disc rs/pc'],
     ];
 
     public function __construct(protected ProductLookupService $lookup)
@@ -40,10 +41,10 @@ class ItemsImportController extends Controller
         return $this->handle($request, ['barcode', 'quantity', 'unit_id', 'price'], 'cost');
     }
 
-    // Item Code | Quantity | Price | Discount %
+    // Item Code | Quantity | Price | Discount % | Discount Rs (per piece)
     public function saleInvoice(Request $request): JsonResponse
     {
-        return $this->handle($request, ['barcode', 'quantity', 'price', 'discount'], 'selling');
+        return $this->handle($request, ['barcode', 'quantity', 'price', 'discount', 'discount_amount'], 'selling');
     }
 
     // Item Code | Quantity | Price
@@ -112,6 +113,7 @@ class ItemsImportController extends Controller
             $unitId   = ($u = $get('unit_id')) !== null && $u !== '' && is_numeric($u) ? (int) $u : null;
             $price    = ($p = $get('price')) !== null && $p !== '' && is_numeric($p) ? (float) $p : null;
             $discount = ($d = $get('discount')) !== null && $d !== '' && is_numeric($d) ? (float) $d : null;
+            $discAmt  = ($da = $get('discount_amount')) !== null && $da !== '' && is_numeric($da) ? (float) $da : null;
 
             $src = $found['type'] === 'variation' ? $found['variation'] : $found['product'];
             $defaultPrice = match ($priceType) {
@@ -130,6 +132,7 @@ class ItemsImportController extends Controller
                 'price'        => $price ?? $defaultPrice,
                 'quantity'     => $qty,
                 'discount'     => $discount,
+                'discount_amount' => $discAmt,
             ];
         }
 

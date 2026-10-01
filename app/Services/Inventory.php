@@ -169,6 +169,80 @@ class Inventory
     }
 
     /**
+     * Batch version of avgCost() for reports: returns fn(productId, variationId) => cost
+     * using 3 queries instead of one per item.
+     */
+    public static function avgCostResolver(?string $asOf = null): \Closure
+    {
+        $base = fn () => StockLedger::whereIn('source_type', self::COST_SOURCES)
+            ->where('qty', '>', 0)->where('unit_cost', '>', 0)
+            ->when($asOf, fn ($q) => $q->where('date', '<=', $asOf));
+
+        $byVariation = $base()->whereNotNull('variation_id')->groupBy('product_id', 'variation_id')
+            ->selectRaw('product_id, variation_id, SUM(qty * unit_cost) / SUM(qty) AS c')->get()
+            ->mapWithKeys(fn ($r) => [$r->product_id . '-' . $r->variation_id => (float) $r->c]);
+        $byProduct = $base()->groupBy('product_id')
+            ->selectRaw('product_id, SUM(qty * unit_cost) / SUM(qty) AS c')->get()
+            ->mapWithKeys(fn ($r) => [$r->product_id => (float) $r->c]);
+
+        $standard = [];
+        return function (int $productId, ?int $variationId = null) use ($byVariation, $byProduct, &$standard, $asOf): float {
+            if ($variationId && isset($byVariation[$productId . '-' . $variationId])) {
+                return round($byVariation[$productId . '-' . $variationId], 4);
+            }
+            if (isset($byProduct[$productId])) {
+                return round($byProduct[$productId], 4);
+            }
+            if (!array_key_exists($productId, $standard)) {
+                $p = Product::find($productId);
+                $standard[$productId] = $p ? self::standardCost($p, $asOf) : 0.0;
+            }
+            return $standard[$productId];
+        };
+    }
+
+    /** Human label for a ledger row's source document. */
+    public static function sourceLabel(string $sourceType, float $qty, ?string $remarks = null): string
+    {
+        return match ($sourceType) {
+            \App\Models\PurchaseInvoice::class     => 'Purchase',
+            \App\Models\PurchaseReturn::class      => 'Purchase Return',
+            \App\Models\ProductionReceiving::class => $qty < 0 ? 'Fabric Consumed' : 'FG Receiving',
+            \App\Models\StockTransfer::class       => $qty < 0 ? 'Movement Out' : 'Movement In',
+            \App\Models\SaleInvoice::class         => str_starts_with((string) $remarks, 'POS') ? 'POS Sale' : 'Sale',
+            \App\Models\SaleReturn::class          => 'Sale Return',
+            \App\Models\StockAdjustment::class     => str_starts_with((string) $remarks, 'Opening') ? 'Opening Stock'
+                                                       : (str_starts_with((string) $remarks, 'Physical') ? 'Stock Count' : 'Adjustment'),
+            default                                 => class_basename($sourceType),
+        };
+    }
+
+    /** Document number per [source_type][source_id] for a set of ledger rows. */
+    public static function documentNumbers($rows): array
+    {
+        $cols = [
+            \App\Models\PurchaseInvoice::class     => 'invoice_no',
+            \App\Models\PurchaseReturn::class      => 'return_no',
+            \App\Models\ProductionReceiving::class => 'grn_no',
+            \App\Models\SaleInvoice::class         => 'invoice_no',
+            \App\Models\StockAdjustment::class     => 'adj_no',
+        ];
+        $out = [];
+        foreach (collect($rows)->groupBy('source_type') as $type => $group) {
+            $ids = $group->pluck('source_id')->unique()->all();
+            if (isset($cols[$type])) {
+                $q = $type::query();
+                if (method_exists($type, 'bootSoftDeletes')) $q->withTrashed();
+                $out[$type] = $q->whereIn('id', $ids)->pluck($cols[$type], 'id')->all();
+            } else {
+                $prefix = $type === \App\Models\StockTransfer::class ? 'ST#' : '#';
+                $out[$type] = collect($ids)->mapWithKeys(fn ($id) => [$id => $prefix . $id])->all();
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Cost when no history exists yet:
      *   finished good = CMT cost + consumption × fabric cost  (else cost price)
      *   anything else = cost price

@@ -86,7 +86,8 @@
                   <th width="9%">Qty</th>
                   <th width="10%">Unit</th>
                   <th width="10%">Price</th>
-                  <th width="8%">Disc %</th>
+                  <th width="7%">Disc %</th>
+                  <th width="8%">Disc Rs/pc</th>
                   <th width="10%">Amount</th>
                   <th width="5%"></th>
                 </tr>
@@ -132,6 +133,9 @@
                              onchange="rowTotal(1)"></td>
                   <td><input type="number" name="items[0][discount]" id="disc_1"
                              class="form-control" value="0" step="any" min="0" max="100"
+                             onchange="rowTotal(1)"></td>
+                  <td><input type="number" name="items[0][discount_amount]" id="discamt_1"
+                             class="form-control" value="0" step="any" min="0"
                              onchange="rowTotal(1)"></td>
                   <td><input type="number" id="amount_1" class="form-control" value="0" disabled></td>
                   <td>
@@ -470,6 +474,9 @@
         <td><input type="number" name="items[${i-1}][discount]" id="disc_${i}"
                    class="form-control" value="0" step="any" min="0" max="100"
                    onchange="rowTotal(${i})"></td>
+        <td><input type="number" name="items[${i-1}][discount_amount]" id="discamt_${i}"
+                   class="form-control" value="0" step="any" min="0"
+                   onchange="rowTotal(${i})"></td>
         <td><input type="number" id="amount_${i}" class="form-control" value="0" disabled></td>
         <td>
           <button type="button" class="btn btn-danger btn-sm" onclick="removeRow(this)">
@@ -495,7 +502,8 @@
     const price = parseFloat($(`#price_${i}`).val()) || 0;
     const qty   = parseFloat($(`#qty_${i}`).val())   || 0;
     const disc  = parseFloat($(`#disc_${i}`).val())  || 0;
-    const amt   = (price - (price * disc / 100)) * qty;
+    const dAmt  = parseFloat($(`#discamt_${i}`).val()) || 0;   // Rs off per piece
+    const amt   = Math.max(0, price - (price * disc / 100) - dAmt) * qty;
     $(`#amount_${i}`).val(amt.toFixed(2));
     calcNet();
   }
@@ -540,18 +548,19 @@
   // so marketplace exports can be pasted in as long as the headers match.
   function downloadImportTemplate() {
     const rows = [
-      ['Item Code (Barcode or SKU)', 'Quantity', 'Price', 'Discount %'],
-      ['KRT-00001-M', 2, 4500, 0],
-      ['KRT-00001-L', 1, '', 10],
+      ['Item Code (Barcode or SKU)', 'Quantity', 'Price', 'Discount %', 'Discount Rs'],
+      ['3KT-00001-M', 2, 4500, 0, 500],
+      ['3KT-00001-L', 1, '', 10, ''],
     ];
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
     const help = XLSX.utils.aoa_to_sheet([
       ['How to fill'],
       ['Item Code : variation SKU (e.g. KRT-00001-M), variation barcode, or product SKU/barcode'],
       ['Quantity  : pieces sold (required)'],
       ['Price     : sale price per piece — leave blank to use the product selling price'],
       ['Discount %: optional line discount in percent'],
+      ['Discount Rs: optional discount in rupees per piece (applied after the %)'],
       ['Delete the two example rows before uploading. Only the first sheet is read.'],
     ]);
     help['!cols'] = [{ wch: 90 }];
@@ -604,6 +613,9 @@
     }
     if (item.discount !== null && item.discount !== undefined) {
       $(`#disc_${i}`).val(item.discount);
+    }
+    if (item.discount_amount !== null && item.discount_amount !== undefined) {
+      $(`#discamt_${i}`).val(item.discount_amount);
     }
 
     const priorQty = existing ? (parseFloat(row.find('.quantity').val()) || 0) : 0;

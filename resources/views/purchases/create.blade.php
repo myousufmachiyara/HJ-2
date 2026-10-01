@@ -13,6 +13,10 @@
         </header>
 
         <div class="card-body">
+          @if($errors->any())
+            <div class="alert alert-danger"><ul class="mb-0">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
+          @endif
+          @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
           <div class="row">
             <input type="hidden" id="itemCount" name="items" value="1">
 
@@ -79,7 +83,7 @@
                 <tr>
                   <th>Item Code</th>
                   <th>Item Name</th>
-                  <th>Variation</th>
+                  <th>Variation / Panna</th>
                   <th>Quantity</th>
                   <th>Unit</th>
                   <th>Price</th>
@@ -108,7 +112,7 @@
 
                   <td>
                     <select name="items[0][variation_id]" class="form-control select2-js variation-select">
-                      <option value="">Select Variation</option>
+                      <option value="">Select Panna / Variation</option>
                     </select>
                   </td>                  
 
@@ -393,7 +397,7 @@
         loadVariations(row, productId, preselectVariationId);
       } else {
         row.find('.variation-select')
-          .html('<option value="">Select Variation</option>')
+          .html('<option value="">Select Panna / Variation</option>')
           .prop('disabled', false)
           .trigger('change');
       }
@@ -413,7 +417,7 @@
             alert(res.message || 'Product not found');
             row.find('.product-code').val('').focus();
             row.find('.product-select').val('').trigger('change.select2');
-            row.find('.variation-select').html('<option value="">Select Variation</option>')
+            row.find('.variation-select').html('<option value="">Select Panna / Variation</option>')
                .prop('disabled', false)
                .trigger('change');
             return;
@@ -455,7 +459,7 @@
               alert("Product found but not in dropdown list.");
               row.find('.product-code').val('').focus();
               row.find('.product-select').val('').trigger('change.select2');
-              row.find('.variation-select').html('<option value="">Select Variation</option>')
+              row.find('.variation-select').html('<option value="">Select Panna / Variation</option>')
                  .prop('disabled', false)
                  .trigger('change');
             }
@@ -545,7 +549,7 @@
 
         <td>
           <select name="items[${rowIndex}][variation_id]" class="form-control select2-js variation-select">
-            <option value="">Select Variation</option>
+            <option value="">Select Panna / Variation</option>
           </select>
         </td>
 
@@ -641,4 +645,20 @@
   }
 </script>
 
+<script>
+  // Fabric with pannas: the panna / variation must be selected before saving
+  $(document).on('submit', 'form', function (e) {
+    let missing = [];
+    $(this).find('.variation-select').each(function (i) {
+      const $s = $(this);
+      if ($s.closest('tr').find('.product-select, select[name$="[item_id]"]').val() && $s.find('option').length > 1 && !$s.val()) {
+        missing.push(i + 1);
+      }
+    });
+    if (missing.length) {
+      e.preventDefault();
+      alert('Select the panna / variation on line(s): ' + missing.join(', '));
+    }
+  });
+</script>
 @endsection

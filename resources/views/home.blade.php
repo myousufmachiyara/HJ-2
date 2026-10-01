@@ -47,7 +47,7 @@
         <div class="kpi-body">
           <div class="kpi-label">Receivables</div>
           <div class="kpi-value">{{ number_format($totalReceivables, 0) }}</div>
-          <div class="kpi-sub">Outstanding balance due</div>
+          <div class="kpi-sub">Customers & marketplaces</div>
         </div>
       </div>
     </div>
@@ -70,25 +70,29 @@
   <div class="row g-3 mb-4">
 
     <div class="col-6 col-md-3">
+      <a href="{{ route('reports.inventory') }}?tab=SR" class="text-decoration-none">
       <div class="kpi-card kpi-purple">
-        <div class="kpi-icon"><i class="fas fa-industry"></i></div>
+        <div class="kpi-icon"><i class="fas fa-warehouse"></i></div>
         <div class="kpi-body">
-          <div class="kpi-label">Pending Production</div>
-          <div class="kpi-value">{{ $pendingCount }}</div>
-          <div class="kpi-sub">Orders not yet received</div>
+          <div class="kpi-label">Stock Value</div>
+          <div class="kpi-value">{{ number_format($stockValue, 0) }}</div>
+          <div class="kpi-sub">Warehouses, marketplaces & CMT</div>
         </div>
       </div>
+      </a>
     </div>
 
     <div class="col-6 col-md-3">
+      <a href="{{ route('pdc_cheques.index') }}" class="text-decoration-none">
       <div class="kpi-card kpi-teal">
-        <div class="kpi-icon"><i class="fas fa-cogs"></i></div>
+        <div class="kpi-icon"><i class="fas fa-money-check"></i></div>
         <div class="kpi-body">
-          <div class="kpi-label">In Process</div>
-          <div class="kpi-value">{{ $inProcessCount }}</div>
-          <div class="kpi-sub">Partially received</div>
+          <div class="kpi-label">PDC Due (7 days)</div>
+          <div class="kpi-value">{{ number_format($pdcDueAmount, 0) }}</div>
+          <div class="kpi-sub">{{ $pdcDueCount }} cheque(s) incl. overdue</div>
         </div>
       </div>
+      </a>
     </div>
 
     <div class="col-6 col-md-3">

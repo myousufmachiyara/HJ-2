@@ -7,8 +7,9 @@
   $rec   = $receiving ?? null;
   $lines = old('item_details', $rec
       ? $rec->details->map(fn($d) => ['product_id' => $d->product_id, 'variation_id' => $d->variation_id, 'received_qty' => $d->received_qty,
-                                      'variation_label' => $d->variation->sku ?? null])->all()
-      : [['product_id' => '', 'variation_id' => '', 'received_qty' => '']]);
+                                      'variation_label' => $d->variation->sku ?? null,
+                                      'fabric_choice' => $d->fabric_id ? $d->fabric_id . ':' . ($d->fabric_variation_id ?? '') : ''])->all()
+      : [['product_id' => '', 'variation_id' => '', 'received_qty' => '', 'fabric_choice' => '']]);
 @endphp
 
 @if($errors->any())
@@ -52,8 +53,9 @@
         <tr>
           <th width="18%">Barcode / Code</th>
           <th>Item</th>
-          <th width="25%">Variation</th>
-          <th width="12%">Qty</th>
+          <th width="20%">Variation</th>
+          <th width="22%">Fabric / Panna <small class="text-muted">(auto)</small></th>
+          <th width="10%">Qty</th>
           <th width="5%"></th>
         </tr>
       </thead>
@@ -77,13 +79,14 @@
                 @endif
               </select>
             </td>
+            <td class="fabric-cell" data-choice="{{ $line['fabric_choice'] ?? '' }}"><input type="hidden" name="item_details[{{ $i }}][fabric_choice]" class="fabric-choice" value="{{ $line['fabric_choice'] ?? '' }}"><small class="text-muted fabric-label">—</small></td>
             <td><input type="number" name="item_details[{{ $i }}][received_qty]" class="form-control received-qty" step="any" min="0" value="{{ $line['received_qty'] }}" required></td>
             <td><button type="button" class="btn btn-danger btn-sm remove-row-btn"><i class="fas fa-times"></i></button></td>
           </tr>
         @endforeach
       </tbody>
       <tfoot>
-        <tr><th colspan="3" class="text-end">Total Pcs</th><th id="total_pcs">0</th><th></th></tr>
+        <tr><th colspan="4" class="text-end">Total Pcs</th><th id="total_pcs">0</th><th></th></tr>
       </tfoot>
     </table>
   </div>
@@ -103,6 +106,7 @@
       </select>
     </td>
     <td><select name="item_details[__i__][variation_id]" class="form-control variation-select"><option value="">No Variation</option></select></td>
+    <td class="fabric-cell" data-choice=""><input type="hidden" name="item_details[__i__][fabric_choice]" class="fabric-choice" value=""><small class="text-muted fabric-label">—</small></td>
     <td><input type="number" name="item_details[__i__][received_qty]" class="form-control received-qty" step="any" min="0" required></td>
     <td><button type="button" class="btn btn-danger btn-sm remove-row-btn"><i class="fas fa-times"></i></button></td>
   </tr>
@@ -127,6 +131,9 @@
       row.removeData('preselect');
     });
     $(document).on('input', '.received-qty', recalc);
+    $(document).on('change', '.variation-select', function () { loadFabric($(this).closest('tr')); });
+    $(document).on('change', '.fabric-select', function () { $(this).closest('td').find('.fabric-choice').val($(this).val()); });
+    $('select[name="vendor_id"]').on('change', function () { $('#receivingBody tr').each(function () { loadFabric($(this), true); }); });
     $(document).on('click', '.remove-row-btn', function () {
       if ($('#receivingBody tr').length > 1) { $(this).closest('tr').remove(); recalc(); }
     });
@@ -201,6 +208,32 @@
       $var.html(opts);
       if (preselectId) $var.val(String(preselectId));
       $var.trigger('change.select2');
+      loadFabric(row);
+    });
+  }
+
+  // Fabric / panna this line consumes at the CMT — from the fabric's article setup.
+  // One option → shown as text; several → staff picks (pre-selected: what this vendor holds most of).
+  function loadFabric(row, keepChoice = true) {
+    const pid = row.find('.product-select').val();
+    const $cell = row.find('.fabric-cell');
+    const $hidden = $cell.find('.fabric-choice');
+    const current = keepChoice ? ($hidden.val() || $cell.data('choice') || '') : '';
+    $cell.find('.fabric-select').remove();
+    if (!pid) { $cell.find('.fabric-label').text('—'); return; }
+    $.get('{{ route('fabric.options') }}', { product_id: pid, variation_id: row.find('.variation-select').val() || '', vendor_id: $('select[name="vendor_id"]').val() || '' }, function (opts) {
+      const $label = $cell.find('.fabric-label');
+      const fmt = o => o.label + ' · ' + o.consumption + '/pc' + (o.at_vendor !== null ? ' · at vendor ' + parseFloat(o.at_vendor).toFixed(2) : '');
+      if (!opts.length) { $hidden.val(''); $label.html('<span class="text-warning">not set up</span>').attr('title', 'No fabric linked to this article — set it on the fabric (Products → Articles)'); return; }
+      if (opts.length === 1) { $hidden.val(opts[0].value); $label.text(fmt(opts[0])).removeClass('text-danger').toggleClass('text-danger', opts[0].at_vendor !== null && opts[0].at_vendor <= 0); return; }
+      $label.text('');
+      const best = opts.slice().sort((a, b) => (b.at_vendor || 0) - (a.at_vendor || 0))[0];
+      const chosen = opts.some(o => o.value === current) ? current : best.value;
+      const $sel = $('<select class="form-control form-control-sm fabric-select"></select>');
+      opts.forEach(o => $sel.append($('<option>').val(o.value).text(fmt(o))));
+      $sel.val(chosen);
+      $hidden.val(chosen);
+      $cell.append($sel);
     });
   }
 

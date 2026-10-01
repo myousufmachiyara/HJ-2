@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
  * Staff only enter: date, vendor, item, variation, qty.
  * The system then (behind the scenes):
  *   - values each line at the product's CMT cost × qty       → CMT vendor bill
- *   - consumes fabric at that vendor: qty × product consumption of the product's fabric
+ *   - consumes fabric (+ panna) at that vendor: qty × consumption from the fabric's article setup
  *   - adds the FG qty to the default warehouse
  *
  * Accounting
@@ -45,7 +45,6 @@ class ProductionReceivingController extends Controller
 
     public function create()
     {
-
         return view('production-receiving.create', $this->formData());
     }
 
@@ -71,11 +70,7 @@ class ProductionReceivingController extends Controller
             DB::commit();
             Log::info('[FGReceiving] Created', ['id' => $receiving->id]);
 
-            $redirect = redirect()->route('production_receiving.index')
-                ->with('success', 'Receiving ' . $receiving->grn_no . ' saved.');
-            return $missingCost
-                ? $redirect->with('error', 'Note: CMT cost is not set on: ' . implode(', ', $missingCost) . '. Set it in Products and re-save this GRN so the vendor bill is correct.')
-                : $redirect;
+            return $this->redirectWithNotes($receiving, 'saved', $missingCost);
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -111,11 +106,7 @@ class ProductionReceivingController extends Controller
             DB::commit();
             Log::info('[FGReceiving] Updated', ['id' => $id]);
 
-            $redirect = redirect()->route('production_receiving.index')
-                ->with('success', 'Receiving ' . $receiving->grn_no . ' updated.');
-            return $missingCost
-                ? $redirect->with('error', 'Note: CMT cost is not set on: ' . implode(', ', $missingCost) . '.')
-                : $redirect;
+            return $this->redirectWithNotes($receiving, 'updated', $missingCost);
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -203,10 +194,23 @@ class ProductionReceivingController extends Controller
 
     // ── Helpers ───────────────────────────────────────────────────────
 
+    private function redirectWithNotes(ProductionReceiving $receiving, string $verb, array $missingCost)
+    {
+        $notes = [];
+        if ($missingCost) {
+            $notes[] = 'CMT cost is not set on: ' . implode(', ', $missingCost) . ' — set it in Products and re-save this GRN so the vendor bill is correct.';
+        }
+        foreach ($this->fabricWarnings($receiving) as $w) {
+            $notes[] = 'Fabric over-use: ' . $w . '.';
+        }
+        $redirect = redirect()->route('production_receiving.index')->with('success', 'Receiving ' . $receiving->grn_no . ' ' . $verb . '.');
+        return $notes ? $redirect->with('error', implode("\n", $notes)) : $redirect;
+    }
+
     private function formData(): array
     {
         return [
-            'products' => Product::orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
+            'products' => Product::where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
             'accounts' => ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get(['id', 'name']),
         ];
     }
@@ -220,6 +224,7 @@ class ProductionReceivingController extends Controller
             'item_details.*.product_id'   => 'required|exists:products,id',
             'item_details.*.variation_id' => 'nullable|exists:product_variations,id',
             'item_details.*.received_qty' => 'required|numeric|min:0.01',
+            'item_details.*.fabric_choice' => 'nullable|string|max:50',
         ]);
     }
 
@@ -233,29 +238,38 @@ class ProductionReceivingController extends Controller
     }
 
     /**
-     * Save lines with CMT cost + fabric consumption taken from the product.
+     * Save lines with the product's CMT cost and the fabric it consumes.
+     *
+     * Fabric + panna come from the fabric's article setup (FabricArticle):
+     *   - the line's chosen option (fabric_choice "fabricId:pannaId") if given, else
+     *   - the only option, else the option this vendor holds most of.
      * Returns names of products that have no CMT cost set.
      */
     private function saveDetails(ProductionReceiving $receiving, array $lines): array
     {
-        $products = Product::whereIn('id', collect($lines)->pluck('product_id'))->get()->keyBy('id');
-        $missing  = [];
+        $products  = Product::whereIn('id', collect($lines)->pluck('product_id'))->get()->keyBy('id');
+        $vendorLoc = Location::forAccount($receiving->vendor_id)
+            ?? Location::syncForAccount(ChartOfAccounts::findOrFail($receiving->vendor_id));
+        $missing   = [];
 
         foreach ($lines as $line) {
             $product = $products[$line['product_id']];
+            $vid     = !empty($line['variation_id']) ? (int) $line['variation_id'] : null;
             $qty     = (float) $line['received_qty'];
 
-            $fabricId  = $product->fabric_id && (float) $product->consumption > 0 ? (int) $product->fabric_id : null;
-            $fabricQty = $fabricId ? round($qty * (float) $product->consumption, 3) : 0;
-            $fabricRate = $fabricId ? Inventory::avgCost($fabricId, null, $receiving->rec_date) : 0;
+            [$fabricId, $fabricVid, $perPiece] = $this->resolveFabric($product, $vid, $line['fabric_choice'] ?? null, $vendorLoc, $receiving);
+
+            $fabricQty  = $fabricId ? round($qty * $perPiece, 3) : 0;
+            $fabricRate = $fabricId ? Inventory::avgCost($fabricId, $fabricVid, $receiving->rec_date, $receiving) : 0;
 
             if ((float) $product->cmt_cost <= 0) $missing[] = $product->name;
 
             ProductionReceivingDetail::create([
                 'production_receiving_id' => $receiving->id,
                 'product_id'              => $product->id,
-                'variation_id'            => $line['variation_id'] ?? null,
+                'variation_id'            => $vid,
                 'fabric_id'               => $fabricId,
+                'fabric_variation_id'     => $fabricVid,
                 'fabric_qty'              => $fabricQty,
                 'fabric_rate'             => $fabricRate,
                 'manufacturing_cost'      => (float) $product->cmt_cost,
@@ -266,9 +280,56 @@ class ProductionReceivingController extends Controller
         return array_values(array_unique($missing));
     }
 
+    /** @return array{0:?int,1:?int,2:float} fabric id, panna (variation) id, consumption per piece */
+    private function resolveFabric(Product $product, ?int $vid, ?string $choice, ?Location $vendorLoc, ProductionReceiving $receiving): array
+    {
+        $options = \App\Models\FabricArticle::optionsFor($product->id, $vid);
+
+        if ($options->isNotEmpty()) {
+            $picked = null;
+            if ($choice) {
+                [$f, $fv] = array_pad(explode(':', $choice, 2), 2, '');
+                $picked = $options->first(fn ($o) => (string) $o->fabric_id === $f && (string) ($o->fabric_variation_id ?? '') === $fv);
+            }
+            if (!$picked) {
+                $picked = $options->count() === 1 ? $options->first()
+                    : $options->sortByDesc(fn ($o) => $vendorLoc ? Inventory::balance($vendorLoc->id, $o->fabric_id, $o->fabric_variation_id, $receiving) : 0)->first();
+            }
+            return [(int) $picked->fabric_id, $picked->fabric_variation_id ? (int) $picked->fabric_variation_id : null, (float) $picked->consumption];
+        }
+
+        // legacy: fabric + consumption stored on the product itself
+        if ($product->fabric_id && (float) $product->consumption > 0) {
+            return [(int) $product->fabric_id, null, (float) $product->consumption];
+        }
+
+        return [null, null, 0.0];
+    }
+
+    /** Fabric lines that would leave the CMT vendor below zero → warning text. */
+    private function fabricWarnings(ProductionReceiving $receiving): array
+    {
+        $vendorLoc = Location::forAccount($receiving->vendor_id);
+        if (!$vendorLoc) return [];
+
+        return $receiving->details()->whereNotNull('fabric_id')
+            ->get()->unique(fn ($d) => $d->fabric_id . '-' . $d->fabric_variation_id)
+            ->map(function ($d) use ($vendorLoc) {
+                $bal = Inventory::balance($vendorLoc->id, $d->fabric_id, $d->fabric_variation_id);
+                return $bal < -0.0005
+                    ? Inventory::itemLabel($d->fabric_id, $d->fabric_variation_id) . ' at ' . $vendorLoc->name . ' is now '
+                      . number_format($bal, 2) . ' (received pieces need ' . number_format(abs($bal), 2) . ' more than was issued)'
+                    : null;
+            })->filter()->values()->all();
+    }
+
     private function post(ProductionReceiving $receiving): void
     {
         $warehouse = Location::find($receiving->location_id) ?? Location::default();
+        if ((int) $receiving->location_id !== $warehouse->id) {
+            $receiving->location_id = $warehouse->id;
+            $receiving->saveQuietly();
+        }
         $vendorLoc = Location::forAccount($receiving->vendor_id)
             ?? Location::syncForAccount(ChartOfAccounts::findOrFail($receiving->vendor_id));
 
@@ -296,7 +357,7 @@ class ProductionReceivingController extends Controller
             if ($d->fabric_id && $vendorLoc && (float) $d->fabric_qty > 0) {
                 $ledger[] = [
                     'product_id'   => $d->fabric_id,
-                    'variation_id' => null,
+                    'variation_id' => $d->fabric_variation_id,
                     'location_id'  => $vendorLoc->id,
                     'qty'          => -1 * (float) $d->fabric_qty,
                     'unit_cost'    => (float) $d->fabric_rate,

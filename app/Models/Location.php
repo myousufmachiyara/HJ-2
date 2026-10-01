@@ -105,10 +105,29 @@ class Location extends Model
             ->groupBy(fn ($l) => $l->typeLabel());
     }
 
-    public static function default(): ?self
+    /**
+     * The default warehouse (FG receivings land here). Never returns null:
+     * if no warehouse exists yet (e.g. `php artisan hj:setup` was not run),
+     * "Main Warehouse" is created on the spot so postings can't fail.
+     */
+    public static function default(): self
     {
-        return static::warehouses()->where('is_default', true)->first()
+        $wh = static::warehouses()->where('is_default', true)->first()
             ?? static::warehouses()->orderBy('id')->first();
+
+        if (!$wh) {
+            // a restored/renamed location may already use the name
+            $wh = static::withTrashed()->where('name', 'Main Warehouse')->first() ?? new static(['name' => 'Main Warehouse']);
+            $wh->fill(['code' => 'WH-MAIN', 'type' => self::WAREHOUSE, 'chart_of_account_id' => null]);
+            $wh->deleted_at = null;
+            $wh->save();
+        }
+
+        if (!$wh->is_default) {
+            $wh->makeDefault();
+        }
+
+        return $wh;
     }
 
     public static function defaultId(): ?int
