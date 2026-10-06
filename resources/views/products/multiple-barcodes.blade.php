@@ -108,7 +108,7 @@
             width: 44mm;
             max-width: 100%;
             height: 9mm;
-            object-fit: fill;
+            object-fit: inherit;
             margin: 0.4mm 0 0.2mm;
         }
 
