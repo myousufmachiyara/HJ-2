@@ -108,9 +108,9 @@
            proportional font at this size. */
         .barcode-label .barcode-number {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 7px;
+            font-size: 11px;
             letter-spacing: 0.4px;
-            margin-top: 0.3mm;
+            margin-top: 0.5mm;
         }
 
         /* The image is deliberately narrower than the label's content
@@ -123,10 +123,10 @@
            padding/layout changes. Height trimmed to 9mm (from 10.5mm) to
            fit the shorter 0.9in label. */
         .barcode-label img {
-            width: 34mm;
+            width: 44mm;
             max-width: 100%;
             height: 9mm;
-            object-fit: contain;
+            object-fit: fill;
             margin: 0.4mm 0 0.2mm;
         }
 
