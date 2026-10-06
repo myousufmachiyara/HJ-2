@@ -122,17 +122,22 @@
            "dithered" by the driver into a scatter of dots — and that is
            what reads as light / faded ink.
 
-           --ink-boost thickens the two thin faces (product name at weight
-           500 and the Courier barcode number) by drawing a hairline
-           outline in black around each letter. It does not change any
-           size or position. 0 = off, 0.2px = default, 0.3px = heavier.
+           --ink-boost draws a black outline around every letter so the
+           strokes are thicker and more dots get burnt. It does not change
+           any size or position.
+             --ink-boost       → product name + barcode number (thin faces)
+             --ink-boost-small → brand + variation lines (already bold)
+           0 = off. Raise in 0.05px steps for darker; if small letters
+           start to fill in (e, a, 8 look like blobs) step back down.
 
            NOTE: how hard the print head burns is a PRINTER setting, not
-           CSS — if it is still light after this, raise Darkness / Density
-           and lower Speed in the printer's Printing Preferences.
+           CSS. This block makes the artwork as heavy as it can be; if it
+           is still light, raise Darkness / Density and lower Speed in the
+           printer's Printing Preferences.
            ──────────────────────────────────────────────────────────── */
         :root {
-            --ink-boost: 0.2px;
+            --ink-boost: 0.4px;
+            --ink-boost-small: 0.2px;
         }
 
         .barcode-label,
@@ -146,6 +151,10 @@
         .barcode-label strong,
         .barcode-label .barcode-number {
             -webkit-text-stroke: var(--ink-boost) #000;
+        }
+
+        .barcode-label small:not(.barcode-number) {
+            -webkit-text-stroke: var(--ink-boost-small) #000;
         }
 
         /* The barcode PNG is stretched to 44mm; default smoothing blurs
@@ -190,6 +199,32 @@
             }
             body {
                 background: #fff;
+            }
+
+            /* ── ONE LABEL = ONE STICKER ───────────────────────────────
+               A second (blank) sticker was fed whenever the label box was
+               even a hair taller than the page the printer really uses
+               (driver stock a fraction under 0.9in, or rounding): the
+               overflow spilled onto a new page.
+               So, when printing only, each label is sized to the ACTUAL
+               page (100vh = the printed page height) minus a 0.3mm
+               safety margin, never more than 0.9in, and a page break is
+               forced only BETWEEN labels — never after the last one. */
+            html, body {
+                height: auto;
+            }
+            .barcode-label {
+                height: min(0.9in, calc(100vh - 0.3mm));
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+            .barcode-label:not(:last-child) {
+                break-after: page;
+                page-break-after: always;
+            }
+            .barcode-label:last-child {
+                break-after: avoid;
+                page-break-after: avoid;
             }
         }
     </style>
