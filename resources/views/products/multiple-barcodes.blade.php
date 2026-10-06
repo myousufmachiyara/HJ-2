@@ -112,6 +112,50 @@
             margin: 0.4mm 0 0.2mm;
         }
 
+        /* ────────────────────────────────────────────────────────────
+           INK DARKNESS — layout above is untouched; these rules only make
+           what is sent to the printer SOLID BLACK instead of grey.
+
+           A thermal printer has no grey: every dot is either burnt or
+           not. Anything the browser sends as grey (smoothed text edges,
+           a blurred/stretched barcode image, a non-black colour) gets
+           "dithered" by the driver into a scatter of dots — and that is
+           what reads as light / faded ink.
+
+           --ink-boost thickens the two thin faces (product name at weight
+           500 and the Courier barcode number) by drawing a hairline
+           outline in black around each letter. It does not change any
+           size or position. 0 = off, 0.2px = default, 0.3px = heavier.
+
+           NOTE: how hard the print head burns is a PRINTER setting, not
+           CSS — if it is still light after this, raise Darkness / Density
+           and lower Speed in the printer's Printing Preferences.
+           ──────────────────────────────────────────────────────────── */
+        :root {
+            --ink-boost: 0.2px;
+        }
+
+        .barcode-label,
+        .barcode-label * {
+            color: #000 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            text-rendering: geometricPrecision;
+        }
+
+        .barcode-label strong,
+        .barcode-label .barcode-number {
+            -webkit-text-stroke: var(--ink-boost) #000;
+        }
+
+        /* The barcode PNG is stretched to 44mm; default smoothing blurs
+           the bar edges into grey. Keep every bar hard black/white. */
+        .barcode-label img {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+
         .no-print {
             text-align: center;
             margin: 16px 0;
