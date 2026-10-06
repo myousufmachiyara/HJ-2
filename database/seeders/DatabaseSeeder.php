@@ -29,10 +29,9 @@ class DatabaseSeeder extends Seeder
         $userId = 1;
         // 🔑 Create Super Admin User
         $admin = User::firstOrCreate(
-            ['username' => 'admin'],
+            ['username' => 'hassan'],
             [
-                'name' => 'Admin',
-                'email' => 'admin@gmail.com', // optional, keep if you want for notifications
+                'name' => 'Hassan',
                 'password' => Hash::make('12345678'),
             ]
         );
