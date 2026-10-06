@@ -67,7 +67,7 @@
            here — 0.9in is shorter than either earlier measurement. */
         .barcode-label strong,
         .barcode-label small {
-            font-weight: 600;
+            font-weight: 800;
             display: block;
             width: 100%;
             /* Flex items default to `min-width: auto`, which means the
@@ -88,7 +88,7 @@
 
         .barcode-label strong {
             font-size: 9px;
-            font-weight: 700;
+            font-weight: 800;
         }
 
         .barcode-label small {
@@ -99,7 +99,7 @@
             font-size: 6px;
             text-transform: uppercase;
             letter-spacing: 0.3px;
-            color: #555;
+            color: #000;
         }
 
         /* Human-readable barcode number in a monospace face with a little
