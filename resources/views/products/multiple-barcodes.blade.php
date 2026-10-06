@@ -1,58 +1,5 @@
 <!DOCTYPE html>
-@php
-    /*
-     | Printer resolution in dots per inch. 203 = Zebra GC420 and almost
-     | every 2-inch label printer. Change to 300 ONLY for a 300 dpi printer.
-     */
-    $printerDpi = 203;
-
-    /*
-     | Code 128 bars for every barcode on the page, sized in whole printer
-     | dots. $dotsPerModule = how many dots wide the thinnest bar is:
-     |   - as wide as fits in 44mm (the width the barcode image had), max 4
-     |   - a long code that would drop to 1 dot is allowed the full label
-     |     width (keeping a quiet zone) so it can still print at 2 dots
-     |   - 1 dot = too thin to scan reliably → warned on the print page
-     */
-    $labelDots  = (int) round(2 * $printerDpi);            // 2in label
-    $targetDots = (int) floor(44 / 25.4 * $printerDpi);    // 44mm
-    $barcodeBars = [];
-    $thinCodes   = [];
-    foreach ($barcodes as $b) {
-        $text = (string) $b['barcodeText'];
-        if (isset($barcodeBars[$text])) continue;
-        try {
-            $code    = (new \Picqer\Barcode\Types\TypeCode128())->getBarcode($text);
-            $modules = $code->getWidth();
-
-            $dotsPerModule = max(1, min(4, intdiv($targetDots, max(1, $modules))));
-            if ($dotsPerModule < 2 && ($modules + 20) * 2 <= $labelDots) $dotsPerModule = 2;
-            if ($dotsPerModule < 2) $thinCodes[] = $text;
-
-            // Everything below is in printer dots, counted from the LEFT EDGE
-            // of the label (the drawing spans the whole label width, so it
-            // starts exactly on the printer's dot grid — the browser only
-            // positions drawings on whole CSS pixels, and "label edge" is
-            // the one place where a CSS pixel and a printer dot line up).
-            // Each bar is also pulled in by a hair ($inset) on both sides so
-            // it fills exactly its own dots whichever way the printer driver
-            // rounds an edge that sits right on a dot boundary.
-            $inset = 0.12;
-            $width = $modules * $dotsPerModule;
-            $x     = intdiv($labelDots - $width, 2);   // centred, whole dots
-            $path  = '';
-            foreach ($code->getBars() as $bar) {
-                $w = $bar->getWidth() * $dotsPerModule;
-                if ($bar->isBar() && $w > 0) $path .= 'M' . ($x + $inset) . ' 0h' . ($w - 2 * $inset) . 'v1h-' . ($w - 2 * $inset) . 'z';
-                $x += $w;
-            }
-            $barcodeBars[$text] = $path;
-        } catch (\Throwable $e) {
-            $barcodeBars[$text] = null;   // falls back to the PNG image
-        }
-    }
-@endphp
-<html data-ink="1">
+<html>
 <head>
     <title>Print Barcodes</title>
     <style>
@@ -166,55 +113,26 @@
         }
 
         /* ────────────────────────────────────────────────────────────
-           BARCODE BARS — drawn as solid black vector bars, NOT a stretched
-           picture.
+           INK DARKNESS — layout above is untouched; these rules only make
+           what is sent to the printer SOLID BLACK instead of grey.
 
-           The old PNG was 2 pixels per bar-module, stretched to 44mm =
-           about 2.25 printer dots per module. A printer cannot print a
-           quarter of a dot, so some bars came out 2 dots wide and others
-           3 — the widths no longer matched the code and scanners failed.
+           A thermal printer has no grey: every dot is either burnt or
+           not. Anything the browser sends as grey (smoothed text edges,
+           a blurred/stretched barcode image, a non-black colour) gets
+           "dithered" by the driver into a scatter of dots — and that is
+           what reads as light / faded ink.
 
-           Now every module is a WHOLE number of printer dots (worked out
-           per barcode at the top of this file from $printerDpi), so each bar is
-           exactly as wide as the code says. Height and margins are the
-           same as the old image, so nothing else on the label moves.
-           ──────────────────────────────────────────────────────────── */
-        .barcode-label .barcode-bars {
-            display: block;
-            flex: none;
-            /* full label width (cancels the label's 1.1mm side padding) —
-               the bars themselves are centred inside it, at most 44mm wide */
-            width: 2in;
-            max-width: none;
-            height: 9mm;
-            margin: 0.4mm -1.1mm 0.2mm;
-        }
+           --ink-boost thickens the two thin faces (product name at weight
+           500 and the Courier barcode number) by drawing a hairline
+           outline in black around each letter. It does not change any
+           size or position. 0 = off, 0.2px = default, 0.3px = heavier.
 
-        /* ────────────────────────────────────────────────────────────
-           INK DARKNESS — text.
-
-           A thermal printer has no grey: a dot is burnt or it is not.
-           Thin letter strokes are only 1–2 dots wide and print faint.
-
-           The text is "overstruck": the same real text is printed again
-           exactly ONE PRINTER DOT to the side, so every stroke gets one
-           dot thicker. It stays real text all the way to the printer.
-           (The earlier outline trick, -webkit-text-stroke, made the
-           browser send the letters as drawn shapes instead of text, which
-           this printer rendered lighter — it is gone.)
-
-           Pick the level with the "Darkness" box on the print page:
-             Normal     – no overstrike
-             Dark       – every line one dot thicker            (default)
-             Extra dark – name + number also one dot taller
-           Nothing here changes any size or position.
-
-           NOTE: how hard the head burns is a PRINTER setting. If even
-           "Extra dark" is pale, raise Darkness/Density and lower Speed in
-           the printer's Printing Preferences.
+           NOTE: how hard the print head burns is a PRINTER setting, not
+           CSS — if it is still light after this, raise Darkness / Density
+           and lower Speed in the printer's Printing Preferences.
            ──────────────────────────────────────────────────────────── */
         :root {
-            --dot: calc(1in / {{ $printerDpi }});   /* one printer dot */
+            --ink-boost: 0.2px;
         }
 
         .barcode-label,
@@ -222,19 +140,20 @@
             color: #000 !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+            text-rendering: geometricPrecision;
         }
 
-        html[data-ink="1"] .barcode-label strong,
-        html[data-ink="1"] .barcode-label small,
-        html[data-ink="2"] .barcode-label small:not(.barcode-number) {
-            text-shadow: var(--dot) 0 0 #000;
+        .barcode-label strong,
+        .barcode-label .barcode-number {
+            -webkit-text-stroke: var(--ink-boost) #000;
         }
 
-        html[data-ink="2"] .barcode-label strong,
-        html[data-ink="2"] .barcode-label .barcode-number {
-            text-shadow: var(--dot) 0 0 #000,
-                         0 var(--dot) 0 #000,
-                         var(--dot) var(--dot) 0 #000;
+        /* The barcode PNG is stretched to 44mm; default smoothing blurs
+           the bar edges into grey. Keep every bar hard black/white. */
+        .barcode-label img {
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
         }
 
         .no-print {
@@ -272,38 +191,6 @@
             body {
                 background: #fff;
             }
-
-            /* ── ONE LABEL = ONE STICKER ───────────────────────────────
-               A second (blank) sticker was fed whenever the label box was
-               even a hair taller than the page the printer really uses
-               (driver stock a fraction under 0.9in, or rounding): the
-               overflow spilled onto a new page.
-               So, when printing only, each label is sized to the ACTUAL
-               page (100vh = the printed page height) minus a 0.3mm
-               safety margin, never more than 0.9in, and a page break is
-               forced only BETWEEN labels — never after the last one. */
-            html, body {
-                height: auto;
-            }
-            .barcode-label {
-                height: min(0.9in, calc(100vh - 0.3mm));
-                break-inside: avoid;
-                page-break-inside: avoid;
-            }
-            .barcode-label:not(:last-child) {
-                break-after: page;
-                page-break-after: always;
-            }
-            .barcode-label:last-child {
-                break-after: avoid;
-                page-break-after: avoid;
-            }
-
-            /* hard bar edges on paper (on screen they are smoothed, because
-               a screen pixel is coarser than a printer dot) */
-            .barcode-label .barcode-bars {
-                shape-rendering: crispEdges;
-            }
         }
     </style>
 </head>
@@ -311,51 +198,18 @@
 
 <div class="no-print">
     <button onclick="window.print()">Print Labels</button>
-    &nbsp; Darkness:
-    <select id="inkLevel">
-        <option value="0">Normal</option>
-        <option value="1" selected>Dark</option>
-        <option value="2">Extra dark</option>
-    </select>
-    <div class="reminder" style="margin-top:12px">
-        In the print window keep <b>Scale: 100 / Default</b> and <b>Margins: None</b> —
-        any other scale changes the bar widths and the barcode may not scan.
-    </div>
-    @if(count($thinCodes))
-        <div class="reminder" style="background:#f8d7da;border-color:#f1aeb5">
-            Too long for this label — bars will be very thin and may not scan:
-            <b>{{ implode(', ', $thinCodes) }}</b>. Use a shorter barcode for these.
-        </div>
-    @endif
-    <script>
-        // remembers the chosen darkness on this computer
-        (function () {
-            var sel = document.getElementById('inkLevel'), saved = null;
-            try { saved = localStorage.getItem('labelInk'); } catch (e) {}
-            if (saved === '0' || saved === '1' || saved === '2') sel.value = saved;
-            function apply() {
-                document.documentElement.setAttribute('data-ink', sel.value);
-                try { localStorage.setItem('labelInk', sel.value); } catch (e) {}
-            }
-            sel.addEventListener('change', apply);
-            apply();
-        })();
-    </script>
 </div>
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
+        @if(!empty($barcode['brand']))
+            <small class="brand">{{ $barcode['brand'] }}</small>
+        @endif
         <strong>{{ $barcode['product'] }}</strong>
         @if(!empty($barcode['variation']))
             <small>{{ $barcode['variation'] }}</small>
         @endif
-        @php $bars = $barcodeBars[(string) $barcode['barcodeText']] ?? null; @endphp
-        @if($bars)
-            <svg class="barcode-bars" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="barcode"
-                 viewBox="0 0 {{ $labelDots }} 1" preserveAspectRatio="none"><path d="{{ $bars }}" fill="#000"/></svg>
-        @else
-            <img src="data:image/png;base64,{{ $barcode['barcodeImage'] }}" alt="barcode">
-        @endif
+        <img src="data:image/png;base64,{{ $barcode['barcodeImage'] }}" alt="barcode">
         <small class="barcode-number">{{ $barcode['barcodeText'] }}</small>
     </div>
 @endforeach
