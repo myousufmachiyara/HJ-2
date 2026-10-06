@@ -3,16 +3,6 @@
 <head>
     <title>Print Barcodes</title>
     <style>
-        /* ────────────────────────────────────────────────────────────
-           THERMAL LABEL SIZE — measured 2in x 0.9in. Must match the EXACT
-           stock size configured in your printer driver (Control Panel →
-           Devices & Printers → your thermal printer → Printing
-           Preferences → Stock/Media size) or labels will misalign / split
-           across labels. If you re-measure and this changes again, update
-           BOTH this @page rule and .barcode-label below (they must always
-           match each other) — and ProductController::labelZplDots() for
-           the Zebra ZPL print path.
-           ──────────────────────────────────────────────────────────── */
         @page {
             size: 2in 0.9in;   /* ← label width x height */
             margin: 0;
@@ -40,7 +30,6 @@
         .barcode-label {
             width: 2in;
             height: 0.9in;
-            padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
             flex-direction: column;
