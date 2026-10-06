@@ -38,8 +38,6 @@
             align-items: center;
             text-align: center;
             overflow: hidden;
-            page-break-after: always;
-            break-after: page;
         }
 
         /* Font sizes recomputed for the 0.9in (22.86mm) label height —
@@ -72,8 +70,8 @@
         }
 
         .barcode-label strong {
-            font-size: 9px;
-            font-weight: 800;
+            font-size: 10px;
+            font-weight: 500;
         }
 
         .barcode-label small {
@@ -94,7 +92,6 @@
         .barcode-label .barcode-number {
             font-family: 'Courier New', Courier, monospace;
             font-size: 11px;
-            letter-spacing: 0.4px;
             margin-top: 0.5mm;
         }
 
