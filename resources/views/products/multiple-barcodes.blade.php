@@ -345,6 +345,7 @@
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
+        
         <strong>{{ $barcode['product'] }}</strong>
         @if(!empty($barcode['variation']))
             <small>{{ $barcode['variation'] }}</small>
