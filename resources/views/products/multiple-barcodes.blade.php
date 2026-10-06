@@ -37,28 +37,14 @@
             font-family: Arial, sans-serif;
         }
 
-        /* ── VERTICAL POSITION OF THE WHOLE LABEL CONTENT ──────────────
-           The content block (brand, name, variation, barcode, number) is
-           now anchored to the TOP of the label instead of being centered,
-           which moves everything up by ~2mm.
-           --label-top-gap is the one knob to fine-tune it:
-             0.3mm = as high as it goes (flush with the top edge)
-             1mm, 1.5mm … = lower it again by that much
-           If the print is still too low with 0.3mm, the offset is coming
-           from the printer (Printing Preferences → Advanced / Adjustments
-           → Vertical offset / Top-of-form), not from this file. */
-        :root {
-            --label-top-gap: 0.3mm;
-        }
-
         .barcode-label {
             width: 2in;
             height: 0.9in;
-            padding: var(--label-top-gap) 1.1mm 0.3mm;
+            padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: center;
             align-items: center;
             text-align: center;
             overflow: hidden;
