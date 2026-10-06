@@ -30,6 +30,7 @@
         .barcode-label {
             width: 2in;
             height: 0.9in;
+            padding: 0.3mm 1.1mm;
             margin: 0;
             display: flex;
             flex-direction: column;
@@ -39,11 +40,6 @@
             overflow: hidden;
             page-break-after: always;
             break-after: page;
-        }
-
-        .barcode-label:last-child {
-            page-break-after: auto;
-            break-after: auto;
         }
 
         /* Font sizes recomputed for the 0.9in (22.86mm) label height —
