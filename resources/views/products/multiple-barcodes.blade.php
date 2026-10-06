@@ -202,9 +202,6 @@
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
-        @if(!empty($barcode['brand']))
-            <small class="brand">{{ $barcode['brand'] }}</small>
-        @endif
         <strong>{{ $barcode['product'] }}</strong>
         @if(!empty($barcode['variation']))
             <small>{{ $barcode['variation'] }}</small>
