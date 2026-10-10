@@ -301,7 +301,7 @@ class ProductController extends Controller
         $fabrics       = Product::where('item_type', 'raw')->orderBy('name')->get(['id', 'name', 'sku']);
 
         $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
-        $fgArticles = Product::with('variations:id,product_id,sku')->orderBy('name')->get(['id', 'name', 'sku']);
+        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'sku']);
 
         return view('products.create', compact('categories', 'subcategories', 'attributes', 'units', 'vendors', 'fabrics', 'pannaAttr', 'fgArticles'));
     }
@@ -333,7 +333,10 @@ class ProductController extends Controller
             'minimum_order_qty'  => 'nullable|numeric',
             'is_active'          => 'boolean',
             'prod_att.*'         => 'nullable|image|mimes:jpeg,png,jpg,webp',
-            'variations.*.barcode' => 'nullable|string',
+            'variations.*.barcode' => 'nullable|string|distinct|unique:product_variations,barcode',
+        ], [
+            'variations.*.barcode.unique'   => 'Barcode :input is already used by another variation.',
+            'variations.*.barcode.distinct' => 'The same barcode is typed on two variations.',
         ]);
 
         DB::beginTransaction();
@@ -349,6 +352,10 @@ class ProductController extends Controller
             $autoSku = blank($data['sku'] ?? null);
             if ($autoSku) {
                 $data['sku'] = Product::generateSku((int) $data['category_id']);
+            }
+            // barcode left blank = same as the SKU
+            if (blank($data['barcode'] ?? null)) {
+                $data['barcode'] = Product::where('barcode', $data['sku'])->exists() ? null : $data['sku'];
             }
             $data['opening_stock'] = $data['opening_stock'] ?? 0;
             foreach (['cmt_cost', 'cost_price', 'selling_price', 'consumption', 'reorder_level', 'max_stock_level', 'minimum_order_qty'] as $num) {
@@ -373,9 +380,10 @@ class ProductController extends Controller
                     if ($autoSku || $sku === '' || str_starts_with($sku, '-')) {
                         $sku = Product::variationSku($product->sku, $ids);
                     }
+                    $sku = $this->uniqueVariationSku($sku);
                     $variation = $product->variations()->create([
-                        'sku'            => $this->uniqueVariationSku($sku),
-                        'barcode'        => ($variationData['barcode'] ?? null) ?: null,
+                        'sku'            => $sku,
+                        'barcode'        => $this->variationBarcode($variationData['barcode'] ?? null, $sku),
                         'stock_quantity' => $variationData['stock_quantity'] ?? 0,
                     ]);
 
@@ -443,7 +451,7 @@ class ProductController extends Controller
 
         // Fabric (raw): PANNA list, article lines, and where the fabric is now
         $pannaAttr  = \App\Services\FabricSetup::pannaAttribute();
-        $fgArticles = Product::with('variations:id,product_id,sku')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
+        $fgArticles = Product::with('variations:id,product_id,sku')->where('item_type', 'fg')->where('id', '!=', $product->id)->orderBy('name')->get(['id', 'name', 'sku']);
         $selectedPannas = $product->variations->map(fn ($v) => \App\Services\FabricSetup::pannaValueOf($v))->filter()->values()->all();
         $fabricRows = \App\Models\FabricArticle::with('fabricVariation')->where('fabric_id', $product->id)->get()
             ->map(fn ($r) => [
@@ -473,6 +481,10 @@ class ProductController extends Controller
             'fabric_id'        => 'nullable|exists:products,id|not_in:' . $id,
             'consumption'      => 'nullable|numeric|min:0',
             'cmt_cost'         => 'nullable|numeric|min:0',
+            'new_variations.*.barcode' => 'nullable|string|distinct|unique:product_variations,barcode',
+        ], [
+            'new_variations.*.barcode.unique'   => 'Barcode :input is already used by another variation.',
+            'new_variations.*.barcode.distinct' => 'The same barcode is typed on two new variations.',
         ]);
 
         DB::beginTransaction();
@@ -512,9 +524,10 @@ class ProductController extends Controller
                     if ($newSku === '' || str_starts_with($newSku, '-')) {
                         $newSku = Product::variationSku($product->sku, (array) ($newVar['attributes'] ?? []));
                     }
+                    $newSku = $this->uniqueVariationSku($newSku);
                     $variation = $product->variations()->create([
-                        'sku'            => $this->uniqueVariationSku($newSku),
-                        'barcode'        => $newVar['barcode'] ?? null,
+                        'sku'            => $newSku,
+                        'barcode'        => $this->variationBarcode($newVar['barcode'] ?? null, $newSku),
                         'stock_quantity' => $newVar['stock_quantity'] ?? 0,
                     ]);
 
@@ -600,6 +613,18 @@ class ProductController extends Controller
     public function nextSku($categoryId)
     {
         return response()->json(['sku' => Product::previewSku((int) $categoryId)]);
+    }
+
+    /**
+     * Barcode for a NEW variation: what was typed, otherwise the same as its
+     * SKU (left empty only in the rare case that SKU is already somebody's barcode).
+     */
+    private function variationBarcode(?string $typed, string $sku): ?string
+    {
+        $typed = trim((string) $typed);
+        if ($typed !== '') return $typed;
+
+        return ProductVariation::withTrashed()->where('barcode', $sku)->exists() ? null : $sku;
     }
 
     private function uniqueVariationSku(string $sku): string
@@ -978,7 +1003,7 @@ class ProductController extends Controller
 
             $helperRow = [
                 '← your SKU',
-                'manual barcode (optional)',
+                'barcode (blank = same as SKU)',
                 '← product name',
                 'optional brand name',
                 $catList,
@@ -998,7 +1023,7 @@ class ProductController extends Controller
                 'max qty',
                 'min order qty',
                 '← variation SKU (blank if no variations)',
-                'manual barcode (optional)',
+                'barcode (blank = same as SKU)',
                 'variation stock qty',
             ];
 

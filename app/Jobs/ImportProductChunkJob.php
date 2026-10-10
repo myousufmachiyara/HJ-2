@@ -68,13 +68,19 @@ class ImportProductChunkJob implements ShouldQueue
 
                 $rawProductBarcode = trim($rowData['product barcode'] ?? '');
 
-                $wasNew  = ! Product::where('sku', $productSku)->exists();
+                $existingProduct = Product::where('sku', $productSku)->first();
+                $wasNew  = ! $existingProduct;
+                // barcode column blank: new product → same as its SKU; existing product → keep its barcode
+                $productBarcode = $rawProductBarcode !== '' && strtolower($rawProductBarcode) !== 'nan'
+                    ? $rawProductBarcode
+                    : ($existingProduct ? $existingProduct->barcode
+                        : (Product::where('barcode', $productSku)->exists() ? null : $productSku));
                 $product = Product::updateOrCreate(
                     ['sku' => $productSku],
                     [
                         'name'              => $productName,
                         'brand'             => trim($rowData['brand'] ?? '') ?: null,
-                        'barcode'           => $rawProductBarcode !== '' && strtolower($rawProductBarcode) !== 'nan' ? $rawProductBarcode : null,
+                        'barcode'           => $productBarcode,
                         'sku_opening_date'  => $skuOpeningDate,
                         'category_id'       => $rowData['_category_id'],
                         'subcategory_id'    => $rowData['_subcategory_id'],
@@ -105,12 +111,19 @@ class ImportProductChunkJob implements ShouldQueue
             if ($variationSku === '') continue;
 
             try {
-                $wasNew    = ! ProductVariation::where('sku', $variationSku)->exists();
+                $existingVariation = ProductVariation::where('sku', $variationSku)->first();
+                $wasNew    = ! $existingVariation;
+                // barcode column blank: new variation → same as its SKU; existing → keep its barcode
+                $variationBarcode = trim($rowData['variation barcode'] ?? '');
+                if ($variationBarcode === '' || strtolower($variationBarcode) === 'nan') {
+                    $variationBarcode = $existingVariation ? $existingVariation->barcode
+                        : (ProductVariation::withTrashed()->where('barcode', $variationSku)->exists() ? null : $variationSku);
+                }
                 $variation = ProductVariation::updateOrCreate(
                     ['sku' => $variationSku],
                     [
                         'product_id'     => $product->id,
-                        'barcode'        => trim($rowData['variation barcode'] ?? '') ?: null,
+                        'barcode'        => $variationBarcode,
                         'stock_quantity' => is_numeric($rowData['variation stock'] ?? null) ? (float) $rowData['variation stock'] : 0,
                     ]
                 );

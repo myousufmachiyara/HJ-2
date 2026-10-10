@@ -33,7 +33,8 @@ class FabricSetup
         while (ProductVariation::withTrashed()->where('sku', $sku)->exists()) {
             $sku = $base . '-' . $n++;
         }
-        $variation = $fabric->variations()->create(['sku' => $sku, 'stock_quantity' => 0]);
+        $barcode = ProductVariation::withTrashed()->where('barcode', $sku)->exists() ? null : $sku;   // barcode = SKU
+        $variation = $fabric->variations()->create(['sku' => $sku, 'barcode' => $barcode, 'stock_quantity' => 0]);
         $variation->attributeValues()->sync([$pannaValueId]);
 
         return $variation;
@@ -64,7 +65,7 @@ class FabricSetup
             $line = $i + 1;
 
             $article = Product::find($r['article_id'] ?? null);
-            if (!$article) {
+            if (!$article || $article->item_type !== 'fg') {
                 throw ValidationException::withMessages(["$field.$i.article_id" => "Article line $line: select a finished-good article."]);
             }
             $cons = (float) ($r['consumption'] ?? 0);

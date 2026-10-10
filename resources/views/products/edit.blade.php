@@ -83,7 +83,7 @@
     </div>
     <div class="col-md-2 mb-3">
       <label>Barcode</label>
-      <input type="text" name="barcode" class="form-control" value="{{ $val('barcode') }}" placeholder="Optional">
+      <input type="text" name="barcode" class="form-control" value="{{ $val('barcode') }}" placeholder="{{ $p ? 'Optional' : 'Blank = same as SKU' }}">
       @error('barcode')<div class="text-danger">{{ $message }}</div>@enderror
     </div>
     <div class="col-md-2 mb-3">
@@ -568,7 +568,7 @@ $(document).ready(function () {
           </div>
           <div class="col-md-2">
             <label>Barcode</label>
-            <input type="text" name="new_variations[${newVariationIndex}][barcode]" class="form-control" placeholder="Manual barcode">
+            <input type="text" name="new_variations[${newVariationIndex}][barcode]" class="form-control" placeholder="Blank = same as SKU">
           </div>
           <div class="col-md-2">
             <label>Stock</label>
