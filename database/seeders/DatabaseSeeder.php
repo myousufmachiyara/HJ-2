@@ -315,7 +315,6 @@ class DatabaseSeeder extends Seeder
 
         Attribute::insert([
             ['id' => 1, 'name' => 'SIZE',           'slug' => 'size',           'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 2, 'name' => 'AGE',            'slug' => 'age',            'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now]
         ]);
 
        AttributeValue::insert([
@@ -328,25 +327,23 @@ class DatabaseSeeder extends Seeder
             ['id' => 6,   'attribute_id' => 1, 'value' => 'XL',                    'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 7,   'attribute_id' => 1, 'value' => 'XXL',                   'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 8,   'attribute_id' => 1, 'value' => 'XXXL',                  'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-
-            // ── AGE (attribute_id = 2) ──────────────────────────────────────
-            ['id' => 9,   'attribute_id' => 2, 'value' => '0M-3M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 10,  'attribute_id' => 2, 'value' => '3M-6M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 11,  'attribute_id' => 2, 'value' => '6M-9M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 12,  'attribute_id' => 2, 'value' => '9M-12M',                'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 13,  'attribute_id' => 2, 'value' => '1-2Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 14,  'attribute_id' => 2, 'value' => '2-3Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 15,  'attribute_id' => 2, 'value' => '3-4Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 16,  'attribute_id' => 2, 'value' => '4-5Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 17,  'attribute_id' => 2, 'value' => '5-6Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 18,  'attribute_id' => 2, 'value' => '6-7Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 19,  'attribute_id' => 2, 'value' => '7-8Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 20,  'attribute_id' => 2, 'value' => '8-9Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 21,  'attribute_id' => 2, 'value' => '9-10Y',                'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 22,  'attribute_id' => 2, 'value' => '10-11Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 23,  'attribute_id' => 2, 'value' => '11-12Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 24,  'attribute_id' => 2, 'value' => '12-13Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 25,  'attribute_id' => 2, 'value' => '13-14Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 9,   'attribute_id' => 1, 'value' => '0M-3M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 10,  'attribute_id' => 1, 'value' => '3M-6M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 11,  'attribute_id' => 1, 'value' => '6M-9M',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 12,  'attribute_id' => 1, 'value' => '9M-12M',                'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 13,  'attribute_id' => 1, 'value' => '1-2Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 14,  'attribute_id' => 1, 'value' => '2-3Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 15,  'attribute_id' => 1, 'value' => '3-4Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 16,  'attribute_id' => 1, 'value' => '4-5Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 17,  'attribute_id' => 1, 'value' => '5-6Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 18,  'attribute_id' => 1, 'value' => '6-7Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 19,  'attribute_id' => 1, 'value' => '7-8Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 20,  'attribute_id' => 1, 'value' => '8-9Y',                 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 21,  'attribute_id' => 1, 'value' => '9-10Y',                'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 22,  'attribute_id' => 1, 'value' => '10-11Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 23,  'attribute_id' => 1, 'value' => '11-12Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 24,  'attribute_id' => 1, 'value' => '12-13Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 25,  'attribute_id' => 1, 'value' => '13-14Y',               'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
 
