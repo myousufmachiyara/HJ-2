@@ -217,6 +217,45 @@ class ShopifyStore extends Model
         }
     }
 
+    /** Scopes Shopify has actually granted to the current token, e.g. ['read_products', 'write_products']. */
+    public function grantedScopes(): array
+    {
+        $data = $this->graphql('{ currentAppInstallation { accessScopes { handle } } }');
+        return collect($data['currentAppInstallation']['accessScopes'] ?? [])->pluck('handle')->filter()->values()->all();
+    }
+
+    /**
+     * Get a brand-new token now (instead of waiting for the 24h one to expire), so
+     * scopes added in a newly released app version are picked up. Returns an error or null.
+     */
+    public function refreshAccess(): ?string
+    {
+        if (!$this->hasClientCredentials()) {
+            return 'This store was connected through the Shopify approval page — use Re-authorize to approve the new permissions.';
+        }
+        return $this->requestClientCredentialsToken();
+    }
+
+    /**
+     * Make sure the token may create products. Renews the token once if the
+     * scope is missing; returns null when OK, otherwise what to do.
+     */
+    public function ensureScope(string $scope = 'write_products'): ?string
+    {
+        $scopes = $this->grantedScopes();
+        if (in_array($scope, $scopes, true)) return null;
+
+        if ($this->hasClientCredentials() && $this->requestClientCredentialsToken() === null) {
+            $this->refresh();
+            $scopes = $this->grantedScopes();
+            if (in_array($scope, $scopes, true)) return null;
+        }
+
+        return "Shopify has given BillTrix only: " . (implode(', ', $scopes) ?: 'no scopes')
+            . ". {$scope} is in your released app version but this store has not approved it yet — "
+            . "click Re-authorize on the Shopify Stores page (or open Shopify Admin → Settings → Apps → your app and approve the update), then push again.";
+    }
+
     // ─────────────────────────────────────────────
     //  Convenience helpers
     // ─────────────────────────────────────────────

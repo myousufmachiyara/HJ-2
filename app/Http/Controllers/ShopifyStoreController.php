@@ -169,9 +169,10 @@ class ShopifyStoreController extends Controller
         }
 
         // Find the pending store
+        $reauth = !empty($sessionData['reauth']);
         $store = ShopifyStore::where('id', $sessionData['store_id'])
             ->where('oauth_state', $state)
-            ->where('status', 'pending')
+            ->whereIn('status', $reauth ? ['pending', 'connected'] : ['pending'])
             ->first();
 
         if (!$store) {
@@ -191,7 +192,7 @@ class ShopifyStoreController extends Controller
 
         if (!$shopUrl || !hash_equals($store->shop_url, $shopUrl)) {
             Session::forget($sessionKey);
-            $store->update(['status' => 'failed']);
+            if (!$reauth) $store->update(['status' => 'failed']);   // a failed re-authorize keeps the working connection
             Log::warning("OAuth callback: shop mismatch — expected {$store->shop_url}, got " . ($shop ?: '(empty)'));
             return redirect()->route('shopify.settings')
                 ->with('error', 'Security check failed (shop mismatch). Please try again.');
@@ -200,7 +201,7 @@ class ShopifyStoreController extends Controller
         // Verify HMAC (exclude both hmac and the legacy signature param)
         if (!$this->verifyHmac($request->except(['hmac', 'signature']), $clientSecret, $hmac)) {
             Session::forget($sessionKey);
-            $store->update(['status' => 'failed']);
+            if (!$reauth) $store->update(['status' => 'failed']);   // a failed re-authorize keeps the working connection
             Log::warning("OAuth HMAC failed for shop={$shopUrl}");
             return redirect()->route('shopify.settings')
                 ->with('error', 'Security check failed. Please try again.');
@@ -229,7 +230,7 @@ class ShopifyStoreController extends Controller
         } catch (\Exception $e) {
             // Destroy credentials from session immediately even on failure
             Session::forget($sessionKey);
-            $store->update(['status' => 'failed']);
+            if (!$reauth) $store->update(['status' => 'failed']);   // a failed re-authorize keeps the working connection
             Log::error("Token exchange failed for {$shopUrl}: " . $e->getMessage());
             return redirect()->route('shopify.settings')
                 ->with('error', 'Could not get access token from Shopify: ' . $e->getMessage());
@@ -245,7 +246,13 @@ class ShopifyStoreController extends Controller
             'status'      => 'connected',
         ]);
 
-        Log::info("OAuth complete for: {$store->shop_name}");
+        Log::info("OAuth complete for: {$store->shop_name}" . ($reauth ? ' (re-authorized)' : ''));
+
+        if ($reauth) {
+            $scopes = rescue(fn () => $store->fresh()->grantedScopes(), [], false);
+            return redirect()->route('shopify.settings')->with('success',
+                "✓ {$store->shop_name} re-authorized. Granted: " . (implode(', ', $scopes) ?: '—') . '. You can push products now.');
+        }
 
         // Dispatched to the queue — see dispatchImport(). Runs asynchronously
         // so this HTTP response isn't blocked for the duration of the import.
@@ -296,6 +303,49 @@ class ShopifyStoreController extends Controller
     // ─────────────────────────────────────────────
     //  Push software → Shopify (new products only, as Draft)
     // ─────────────────────────────────────────────
+
+    /** Renew the token now and show which permissions Shopify has granted. */
+    public function checkAccess($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if ($store->hasClientCredentials() && ($err = $store->refreshAccess())) {
+            return back()->with('error', "{$store->shop_name}: {$err}");
+        }
+        try {
+            $scopes = $store->fresh()->grantedScopes();
+        } catch (\Throwable $e) {
+            return back()->with('error', "{$store->shop_name}: {$e->getMessage()}");
+        }
+        $list = implode(', ', $scopes) ?: 'none';
+        return in_array('write_products', $scopes, true)
+            ? back()->with('success', "{$store->shop_name}: access OK — granted {$list}. You can push products now.")
+            : back()->with('error', "{$store->shop_name}: granted only {$list}. write_products is missing — click Re-authorize and approve the new permissions on Shopify.");
+    }
+
+    /** Send the admin to Shopify's approval page again so new scopes (write_products) are approved. */
+    public function reauthorize($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if (!$store->hasClientCredentials()) {
+            return back()->with('error', 'Client ID / Secret are not saved for this store — disconnect and connect it again.');
+        }
+
+        $state = Str::random(40);
+        $store->update(['oauth_state' => $state]);
+        Session::put("shopify_oauth_{$state}", [
+            'client_id'     => Crypt::encryptString($store->getClientId()),
+            'client_secret' => Crypt::encryptString($store->getClientSecret()),
+            'store_id'      => $store->id,
+            'reauth'        => true,   // already connected: only refresh permissions, no full import
+        ]);
+
+        return redirect("https://{$store->shop_url}/admin/oauth/authorize?" . http_build_query([
+            'client_id'    => $store->getClientId(),
+            'scope'        => config('services.shopify.scopes'),
+            'redirect_uri' => route('shopify.oauth.callback'),
+            'state'        => $state,
+        ]));
+    }
 
     /** Shopify Stores page: push every product that is not on Shopify yet. */
     public function pushNew($id)

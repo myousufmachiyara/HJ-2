@@ -59,6 +59,11 @@ class PushProductsToShopify implements ShouldQueue
         try {
             $this->log->update(['status' => 'processing', 'error_message' => null]);
 
+            // fails early (with what to do) when the store hasn't granted write_products
+            if ($scopeError = $this->store->ensureScope('write_products')) {
+                throw new \RuntimeException($scopeError);
+            }
+
             $products = self::eligibleQuery($this->productIds)
                 ->with(['variations.attributeValues.attribute', 'images', 'category'])
                 ->orderBy('id')->get();

@@ -194,7 +194,7 @@
                                 </details>
                             </td>
                             <td>
-                                <div class="d-flex gap-2">
+                                <div class="d-flex flex-wrap gap-2">
                                     {{-- Manual Sync (only shown when connected) --}}
                                     @if($store->status === 'connected')
                                     <form action="{{ route('shopify.store.sync', $store->id) }}" method="POST">
@@ -210,6 +210,19 @@
                                         <button type="submit" class="btn btn-sm btn-primary" {{ $newCount ? '' : 'disabled' }}
                                                 title="Send products that are not on Shopify yet (created as Draft, no stock)">
                                             Push New ({{ $newCount }})
+                                        </button>
+                                    </form>
+                                    {{-- after adding write_products to the app: renew token / approve new permissions --}}
+                                    <form action="{{ route('shopify.store.check-access', $store->id) }}" method="POST">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Get a fresh token and show the permissions Shopify has granted">
+                                            Check Access
+                                        </button>
+                                    </form>
+                                    <form action="{{ route('shopify.store.reauthorize', $store->id) }}" method="POST">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Open Shopify's approval page to approve new permissions (e.g. write_products)">
+                                            Re-authorize
                                         </button>
                                     </form>
                                     @endif
