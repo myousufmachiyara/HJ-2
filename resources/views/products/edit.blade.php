@@ -115,12 +115,10 @@
         @error('cmt_cost')<div class="text-danger">{{ $message }}</div>@enderror
       </div>
       <div class="col-md-2 mb-3">
-        <label>Selling Price</label>
-        <input type="number" step="any" min="0" name="selling_price" class="form-control" value="{{ $val('selling_price', '0') }}">
-      </div>
-      <div class="col-md-2 mb-3">
-        <label>Compare At Price</label>
-        <input type="number" step="any" min="0" name="compare_at_price" class="form-control" value="{{ $val('compare_at_price') }}" placeholder="Before discount">
+        <label>Cost Price <small class="text-muted">(per pc)</small></label>
+        <input type="number" step="any" min="0" name="cost_price" class="form-control" value="{{ $val('cost_price', '0') }}">
+        <small class="text-muted">Same for all sizes</small>
+        @error('cost_price')<div class="text-danger">{{ $message }}</div>@enderror
       </div>
       <div class="col-md-2 mb-3">
         <label>Brand</label>
@@ -265,6 +263,20 @@
 
           <div class="row mt-4">
             <div class="col-md-12">
+              <div class="row align-items-end mb-3" data-for="fg">
+                <div class="col-md-2 mb-2">
+                  <label>Selling Price <small class="text-muted">(all sizes)</small></label>
+                  <input type="number" step="any" min="0" name="selling_price" id="defSellingPrice" class="form-control" value="{{ old('selling_price', $product->selling_price) }}">
+                </div>
+                <div class="col-md-2 mb-2">
+                  <label>Compare At <small class="text-muted">(all sizes)</small></label>
+                  <input type="number" step="any" min="0" name="compare_at_price" id="defComparePrice" class="form-control" value="{{ old('compare_at_price', $product->compare_at_price) }}" placeholder="Before discount">
+                </div>
+                <div class="col-md-5 mb-2">
+                  <button type="button" class="btn btn-outline-primary" id="applyPricesBtn"><i class="fas fa-angle-double-down"></i> Apply to all sizes</button>
+                  <small class="text-muted d-block">Used for any size whose own price is blank. Each size's price is below.</small>
+                </div>
+              </div>
               <h2 class="card-title">Existing Variations</h2>
               <div id="variation-section">
                 @foreach($product->variations as $i => $variation)
@@ -279,11 +291,19 @@
                         <label>Barcode</label>
                         <input type="text" name="variations[{{ $i }}][barcode]" class="form-control" value="{{ $variation->barcode }}" placeholder="Manual barcode">
                       </div>
-                      <div class="col-md-2">
+                      <div class="col-md-1">
                         <label>Stock</label>
                         <input type="number" step="any" name="variations[{{ $i }}][stock_quantity]" class="form-control" value="{{ $variation->stock_quantity }}">
                       </div>
-                      <div class="col-md-4">
+                      <div class="col-md-1" data-for="fg">
+                        <label>Price</label>
+                        <input type="number" step="any" min="0" name="variations[{{ $i }}][selling_price]" class="form-control v-sell" value="{{ $variation->selling_price }}" placeholder="{{ $product->selling_price + 0 }}">
+                      </div>
+                      <div class="col-md-1" data-for="fg">
+                        <label>Compare</label>
+                        <input type="number" step="any" min="0" name="variations[{{ $i }}][compare_at_price]" class="form-control v-compare" value="{{ $variation->compare_at_price }}" placeholder="{{ $product->compare_at_price ? $product->compare_at_price + 0 : '—' }}">
+                      </div>
+                      <div class="col-md-3">
                         <label>Attributes</label>
                         <select name="variations[{{ $i }}][attributes][]" multiple class="form-control select2-js variation-attributes">
                           @foreach($attributes as $attribute)
@@ -570,11 +590,19 @@ $(document).ready(function () {
             <label>Barcode</label>
             <input type="text" name="new_variations[${newVariationIndex}][barcode]" class="form-control" placeholder="Blank = same as SKU">
           </div>
-          <div class="col-md-2">
+          <div class="col-md-1">
             <label>Stock</label>
             <input type="number" step="any" name="new_variations[${newVariationIndex}][stock_quantity]" value="0" class="form-control">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-1" data-for="fg">
+            <label>Price</label>
+            <input type="number" step="any" min="0" name="new_variations[${newVariationIndex}][selling_price]" class="form-control v-sell" value="${$('#defSellingPrice').val() || ''}">
+          </div>
+          <div class="col-md-1" data-for="fg">
+            <label>Compare</label>
+            <input type="number" step="any" min="0" name="new_variations[${newVariationIndex}][compare_at_price]" class="form-control v-compare" value="${$('#defComparePrice').val() || ''}">
+          </div>
+          <div class="col-md-3">
             <label>Attributes</label>
             <select name="new_variations[${newVariationIndex}][attributes][]" multiple class="form-control select2-js variation-attributes">
               @foreach($attributes as $attribute)
@@ -592,6 +620,13 @@ $(document).ready(function () {
     `;
     $('#new-variation-section').append(html);
     $('#new-variation-section .variation-block:last .select2-js').select2();
+    window.productTypeChanged();   // show/hide the price boxes for the current type
+  });
+
+  // push the "all sizes" prices into every size
+  $('#applyPricesBtn').on('click', function () {
+    $('.variation-block .v-sell:enabled').val($('#defSellingPrice').val());
+    $('.variation-block .v-compare:enabled').val($('#defComparePrice').val());
   });
 
   $(document).on('click', '.remove-new-variation', function () {

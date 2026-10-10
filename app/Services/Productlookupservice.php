@@ -36,7 +36,8 @@ class ProductLookupService
                     'barcode'       => $variation->barcode,
                     'price'         => (float) ($p->cost_price ?? 0),
                     'cost_price'    => (float) ($p->cost_price ?? 0),
-                    'selling_price' => (float) ($variation->selling_price ?? $p->selling_price ?? 0),
+                    'selling_price' => $variation->salePrice(),
+                    'compare_at_price' => $variation->comparePrice(),
                     'unit_id'       => $p->measurement_unit,
                 ],
             ];

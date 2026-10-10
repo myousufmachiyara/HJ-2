@@ -125,6 +125,13 @@ class ImportProductChunkJob implements ShouldQueue
                         'product_id'     => $product->id,
                         'barcode'        => $variationBarcode,
                         'stock_quantity' => is_numeric($rowData['variation stock'] ?? null) ? (float) $rowData['variation stock'] : 0,
+                        // size price columns; blank = product's default price
+                        'selling_price'    => is_numeric($rowData['variation selling price'] ?? null)
+                                              ? (float) $rowData['variation selling price']
+                                              : ($existingVariation ? $existingVariation->selling_price : $product->selling_price),
+                        'compare_at_price' => is_numeric($rowData['variation compare at price'] ?? null)
+                                              ? (float) $rowData['variation compare at price']
+                                              : ($existingVariation ? $existingVariation->compare_at_price : $product->compare_at_price),
                     ]
                 );
 

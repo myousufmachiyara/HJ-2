@@ -74,10 +74,8 @@ class ProductController extends Controller
             // Manual barcode: variation barcode first, then fall back to the
             // product's own barcode, then SKU as a last resort.
             $barcodeText  = $variation->barcode ?? $variation->product->barcode ?? $variation->sku ?? 'NO-BARCODE';
-            $price        = number_format($variation->product->selling_price ?? 0, 2);
-            $comparePrice = !empty($variation->product->compare_at_price)
-                ? number_format($variation->product->compare_at_price, 2)
-                : null;
+            $price        = number_format($variation->salePrice(), 2);          // size price, else product default
+            $comparePrice = $variation->comparePrice() !== null ? number_format($variation->comparePrice(), 2) : null;
             $brand        = $variation->product->brand ?? '';
 
             for ($i = 0; $i < $qty; $i++) {
@@ -334,6 +332,8 @@ class ProductController extends Controller
             'is_active'          => 'boolean',
             'prod_att.*'         => 'nullable|image|mimes:jpeg,png,jpg,webp',
             'variations.*.barcode' => 'nullable|string|distinct|unique:product_variations,barcode',
+            'variations.*.selling_price'    => 'nullable|numeric|min:0',
+            'variations.*.compare_at_price' => 'nullable|numeric|min:0',
         ], [
             'variations.*.barcode.unique'   => 'Barcode :input is already used by another variation.',
             'variations.*.barcode.distinct' => 'The same barcode is typed on two variations.',
@@ -385,6 +385,9 @@ class ProductController extends Controller
                         'sku'            => $sku,
                         'barcode'        => $this->variationBarcode($variationData['barcode'] ?? null, $sku),
                         'stock_quantity' => $variationData['stock_quantity'] ?? 0,
+                        // blank = the product's default price
+                        'selling_price'    => $this->priceOr($variationData['selling_price'] ?? null, $product->selling_price),
+                        'compare_at_price' => $this->priceOr($variationData['compare_at_price'] ?? null, $product->compare_at_price),
                     ]);
 
                     if ($ids) {
@@ -482,6 +485,10 @@ class ProductController extends Controller
             'consumption'      => 'nullable|numeric|min:0',
             'cmt_cost'         => 'nullable|numeric|min:0',
             'new_variations.*.barcode' => 'nullable|string|distinct|unique:product_variations,barcode',
+            'variations.*.selling_price'        => 'nullable|numeric|min:0',
+            'variations.*.compare_at_price'     => 'nullable|numeric|min:0',
+            'new_variations.*.selling_price'    => 'nullable|numeric|min:0',
+            'new_variations.*.compare_at_price' => 'nullable|numeric|min:0',
         ], [
             'new_variations.*.barcode.unique'   => 'Barcode :input is already used by another variation.',
             'new_variations.*.barcode.distinct' => 'The same barcode is typed on two new variations.',
@@ -491,24 +498,36 @@ class ProductController extends Controller
         try {
             $product = Product::findOrFail($id);
 
-            $product->update($request->only([
+            $data = $request->only([
                 'name', 'category_id', 'subcategory_id', 'vendor_id', 'brand',
                 'sku', 'barcode', 'sku_opening_date', 'measurement_unit', 'item_type',
                 'weight', 'cmt_cost', 'cost_price',
                 'opening_stock', 'description', 'selling_price', 'compare_at_price',
                 'consumption', 'fabric_id', 'reorder_level', 'max_stock_level', 'minimum_order_qty', 'is_active',
-            ]));
+            ]);
+            foreach (['cmt_cost', 'cost_price', 'selling_price'] as $num) {   // blank money box = 0
+                if (array_key_exists($num, $data) && $data[$num] === null) $data[$num] = 0;
+            }
+            $product->update($data);
 
             $handledVariationIds = [];
 
             if (is_array($request->variations)) {
                 foreach ($request->variations as $variationData) {
                     $variation = ProductVariation::findOrFail($variationData['id']);
-                    $variation->update([
+                    $update = [
                         'sku'            => $variationData['sku'],
                         'barcode'        => $variationData['barcode'] ?? $variation->barcode,
                         'stock_quantity' => $variationData['stock_quantity'] ?? 0,
-                    ]);
+                    ];
+                    // price fields are posted only for finished goods; blank = product's default
+                    if (array_key_exists('selling_price', $variationData)) {
+                        $update['selling_price'] = $this->priceOr($variationData['selling_price'], null);
+                    }
+                    if (array_key_exists('compare_at_price', $variationData)) {
+                        $update['compare_at_price'] = $this->priceOr($variationData['compare_at_price'], null);
+                    }
+                    $variation->update($update);
 
                     if (!empty($variationData['attributes'])) {
                         $variation->attributeValues()->sync($variationData['attributes']);
@@ -529,6 +548,8 @@ class ProductController extends Controller
                         'sku'            => $newSku,
                         'barcode'        => $this->variationBarcode($newVar['barcode'] ?? null, $newSku),
                         'stock_quantity' => $newVar['stock_quantity'] ?? 0,
+                        'selling_price'    => $this->priceOr($newVar['selling_price'] ?? null, $product->selling_price),
+                        'compare_at_price' => $this->priceOr($newVar['compare_at_price'] ?? null, $product->compare_at_price),
                     ]);
 
                     if (!empty($newVar['attributes'])) {
@@ -627,6 +648,13 @@ class ProductController extends Controller
         return ProductVariation::withTrashed()->where('barcode', $sku)->exists() ? null : $sku;
     }
 
+    /** A typed price, or the fallback when the box was left blank. */
+    private function priceOr($typed, $fallback): ?float
+    {
+        if ($typed !== null && $typed !== '' && is_numeric($typed)) return round((float) $typed, 2);
+        return $fallback !== null && $fallback !== '' ? round((float) $fallback, 2) : null;
+    }
+
     private function uniqueVariationSku(string $sku): string
     {
         $candidate = $sku;
@@ -663,8 +691,9 @@ class ProductController extends Controller
                         'brand'            => $variation->product->brand ?? '',
                         'cost_price'       => $variation->product->cost_price ?? 0,
                         'cmt_cost'         => $variation->product->cmt_cost ?? 0,
-                        'selling_price'    => $variation->product->selling_price ?? 0,
-                        'compare_at_price' => $variation->product->compare_at_price ?? 0,
+                        'selling_price'    => $variation->salePrice(),
+                        'compare_at_price' => $variation->comparePrice() ?? 0,
+                        'price'            => $variation->salePrice(),   // used by the sale forms when a code is scanned
                         'weight'           => $variation->product->weight ?? 0,
                     ],
                 ]);
@@ -710,10 +739,13 @@ class ProductController extends Controller
 
         $unitId     = $product->measurementUnit->id ?? null;
         $variations = $product->variations->map(fn($v) => [
-            'id'      => $v->id,
-            'sku'     => $v->sku,
-            'barcode' => $v->barcode,
-            'unit'    => $unitId,
+            'id'               => $v->id,
+            'sku'              => $v->sku,
+            'barcode'          => $v->barcode,
+            'unit'             => $unitId,
+            'price'            => $v->setRelation('product', $product)->salePrice(),
+            'selling_price'    => $v->salePrice(),
+            'compare_at_price' => $v->comparePrice(),
         ])->toArray();
 
         return response()->json([
@@ -750,6 +782,9 @@ class ProductController extends Controller
             'sku'        => $v->sku,
             'barcode'    => $v->barcode,
             'unit'       => $unitId,
+            'price'            => $v->setRelation('product', $product)->salePrice(),
+            'selling_price'    => $v->salePrice(),
+            'compare_at_price' => $v->comparePrice(),
             'attributes' => $v->attributeValues->map(fn($av) => [
                 'id'        => $av->id,
                 'value'     => $av->value,
@@ -805,6 +840,8 @@ class ProductController extends Controller
             'Variation SKU',
             'Variation Barcode',
             'Variation Stock',
+            'Variation Selling Price',
+            'Variation Compare At Price',
         ], $attributes);
 
         $headers = [
@@ -850,7 +887,7 @@ class ProductController extends Controller
                 if ($product->variations->isEmpty()) {
                     fputcsv($file, array_merge(
                         $productRow,
-                        ['', '', 0],
+                        ['', '', 0, '', ''],
                         array_fill(0, count($attributes), '')
                     ));
                 } else {
@@ -859,6 +896,8 @@ class ProductController extends Controller
                             $variation->sku,
                             $variation->barcode ?? '',
                             $variation->stock_quantity ?? 0,
+                            $variation->selling_price ?? '',
+                            $variation->compare_at_price ?? '',
                         ];
 
                         $attrRow = [];
@@ -977,6 +1016,8 @@ class ProductController extends Controller
             'Variation SKU',
             'Variation Barcode',
             'Variation Stock',
+            'Variation Selling Price',
+            'Variation Compare At Price',
         ];
 
         $columns = array_merge($fixedCols, $attributes);
@@ -1016,8 +1057,8 @@ class ProductController extends Controller
                 'YYYY-MM-DD (optional)',
                 'CMT/making cost',
                 'default purchase rate',
-                'selling price',
-                'compare-at / original price (optional)',
+                'default selling price (all sizes)',
+                'default compare-at / original price (optional)',
                 'opening qty',
                 'reorder qty',
                 'max qty',
@@ -1025,6 +1066,8 @@ class ProductController extends Controller
                 '← variation SKU (blank if no variations)',
                 'barcode (blank = same as SKU)',
                 'variation stock qty',
+                'size selling price (blank = product selling price)',
+                'size compare-at price (blank = product compare-at)',
             ];
 
             foreach ($attributes as $attr) {
@@ -1052,7 +1095,7 @@ class ProductController extends Controller
             $fgExamples = [
                 ['sku' => 'JKT-BLK-S', 'color' => 'Black', 'size' => 'S', 'stock' => 10],
                 ['sku' => 'JKT-BLK-M', 'color' => 'Black', 'size' => 'M', 'stock' => 15],
-                ['sku' => 'JKT-BLK-L', 'color' => 'Black', 'size' => 'L', 'stock' => 12],
+                ['sku' => 'JKT-BLK-L', 'color' => 'Black', 'size' => 'L', 'stock' => 12, 'price' => 5200],
                 ['sku' => 'JKT-BRN-S', 'color' => 'Brown', 'size' => 'S', 'stock' => 8],
                 ['sku' => 'JKT-BRN-M', 'color' => 'Brown', 'size' => 'M', 'stock' => 10],
             ];
@@ -1064,7 +1107,7 @@ class ProductController extends Controller
                     '0.8', '2025-01-01',
                     '2500', '3000', '5000', '5500',
                     '0', '5', '100', '1',
-                    $v['sku'], '', $v['stock'],
+                    $v['sku'], '', $v['stock'], $v['price'] ?? '', '',
                 ], $makeAttrRow(['size' => $v['size'], 'color' => $v['color']])));
             }
 
@@ -1083,7 +1126,7 @@ class ProductController extends Controller
                     '0.15', '2025-01-01',
                     '700', '900', '1800', '2000',
                     '0', '5', '50', '1',
-                    $v['sku'], '', $v['stock'],
+                    $v['sku'], '', $v['stock'], $v['price'] ?? '', '',
                 ], $makeAttrRow(['color' => $v['color'], 'add engraving?' => $v['add engraving?']])));
             }
 
@@ -1095,7 +1138,7 @@ class ProductController extends Controller
                 '0.3', '2025-01-01',
                 '400', '500', '1200', '1400',
                 '25', '5', '100', '1',
-                '', '', '0',
+                '', '', '0', '', '',
             ], $blankAttrs));
 
             // Example 4: Raw material
@@ -1110,7 +1153,7 @@ class ProductController extends Controller
                 '', '',
                 '0', '150', '0', '',
                 '200', '20', '1000', '1',
-                '', '', '0',
+                '', '', '0', '', '',
             ], $blankAttrs));
 
             fclose($file);

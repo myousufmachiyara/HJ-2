@@ -116,12 +116,10 @@
         @error('cmt_cost')<div class="text-danger">{{ $message }}</div>@enderror
       </div>
       <div class="col-md-2 mb-3">
-        <label>Selling Price</label>
-        <input type="number" step="any" min="0" name="selling_price" class="form-control" value="{{ $val('selling_price', '0') }}">
-      </div>
-      <div class="col-md-2 mb-3">
-        <label>Compare At Price</label>
-        <input type="number" step="any" min="0" name="compare_at_price" class="form-control" value="{{ $val('compare_at_price') }}" placeholder="Before discount">
+        <label>Cost Price <small class="text-muted">(per pc)</small></label>
+        <input type="number" step="any" min="0" name="cost_price" class="form-control" value="{{ $val('cost_price', '0') }}">
+        <small class="text-muted">Same for all sizes</small>
+        @error('cost_price')<div class="text-danger">{{ $message }}</div>@enderror
       </div>
       <div class="col-md-2 mb-3">
         <label>Brand</label>
@@ -275,7 +273,23 @@
             </div>
           </div>
 
-          <div class="col-md-12 mt-4">
+          {{-- Selling prices are per size: these two fill every size row; change any size in the table --}}
+          <div class="row mt-3 align-items-end">
+            <div class="col-md-2 mb-2">
+              <label>Selling Price <small class="text-muted">(all sizes)</small></label>
+              <input type="number" step="any" min="0" name="selling_price" id="defSellingPrice" class="form-control" value="{{ old('selling_price', '0') }}">
+            </div>
+            <div class="col-md-2 mb-2">
+              <label>Compare At <small class="text-muted">(all sizes)</small></label>
+              <input type="number" step="any" min="0" name="compare_at_price" id="defComparePrice" class="form-control" value="{{ old('compare_at_price') }}" placeholder="Before discount">
+            </div>
+            <div class="col-md-4 mb-2">
+              <button type="button" class="btn btn-outline-primary" id="applyPricesBtn"><i class="fas fa-angle-double-down"></i> Apply to all sizes</button>
+              <small class="text-muted d-block">Each size can have its own price in the table.</small>
+            </div>
+          </div>
+
+          <div class="col-md-12 mt-3">
             <button type="button" class="btn btn-success mb-3" id="generateVariationsBtn">
               <i class="fa fa-plus"></i> Generate Variations
             </button>
@@ -284,7 +298,9 @@
                 <thead>
                   <tr>
                     <th>Variation</th>
-                    <th>Stock</th>
+                    <th width="13%">Selling Price</th>
+                    <th width="13%">Compare At</th>
+                    <th width="10%">Stock</th>
                     <th>SKU</th>
                     <th>Barcode</th>
                     <th>Action</th>
@@ -551,6 +567,8 @@ $(document).ready(function () {
     let tbody = $('#variationsTable tbody');
     tbody.empty();
     let mainSku = $('#sku').val() || $('#sku').attr('data-preview') || '';
+    let defSell = $('#defSellingPrice').val() || '';
+    let defComp = $('#defComparePrice').val() || '';
 
     combos.forEach((combo, index) => {
       let label = combo.map(c => c.text).join('-');
@@ -561,6 +579,8 @@ $(document).ready(function () {
       tbody.append(`
         <tr>
           <td>${label}${inputs}</td>
+          <td><input type="number" name="variations[${index}][selling_price]" step="any" min="0" class="form-control v-sell" value="${defSell}"></td>
+          <td><input type="number" name="variations[${index}][compare_at_price]" step="any" min="0" class="form-control v-compare" value="${defComp}" placeholder="—"></td>
           <td><input type="number" name="variations[${index}][stock_quantity]" step="any" class="form-control" value="0"></td>
           <td><input type="text" name="variations[${index}][sku]" class="form-control" value="${mainSku}-${label}"></td>
           <td><input type="text" name="variations[${index}][barcode]" class="form-control" placeholder="Blank = same as SKU"></td>
@@ -568,6 +588,12 @@ $(document).ready(function () {
         </tr>
       `);
     });
+  });
+
+  // push the "all sizes" prices into every size row
+  $('#applyPricesBtn').on('click', function () {
+    $('#variationsTable .v-sell').val($('#defSellingPrice').val());
+    $('#variationsTable .v-compare').val($('#defComparePrice').val());
   });
 
   $(document).on('click', '.remove-variation', function () {

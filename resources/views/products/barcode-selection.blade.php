@@ -61,7 +61,7 @@
                                     <td class="product-name">{{ $variation->product->name }}</td>
                                     <td>{{ $variation->sku }}</td>
                                     <td>{{ $variation->barcode ?? $variation->product->barcode ?? '-' }}</td>
-                                    <td>{{ number_format($variation->product->selling_price, 2) }}</td>
+                                    <td>{{ number_format($variation->salePrice(), 2) }}</td>
                                     <td>
                                         <input type="number" name="quantity[{{ $variation->id }}]" value="1" min="1" class="form-control form-control-sm">
                                     </td>

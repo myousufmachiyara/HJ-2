@@ -45,7 +45,7 @@ class PosController extends Controller
                     return [
                         'id'    => $v->id,
                         'sku'   => $v->sku,
-                        'price' => $p->selling_price,
+                        'price' => $v->setRelation('product', $p)->salePrice(),   // size price, else product default
                     ];
                 })->values()->toArray(),
             ];

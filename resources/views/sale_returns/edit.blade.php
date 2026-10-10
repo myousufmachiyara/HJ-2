@@ -78,7 +78,7 @@
                     <option value="">Select Variation</option>
                     @if($item->product && $item->product->variations)
                       @foreach($item->product->variations as $var)
-                        <option value="{{ $var->id }}" data-price="{{ $var->price }}"
+                        <option value="{{ $var->id }}" data-price="{{ $var->salePrice() }}"
                           {{ $item->variation_id == $var->id ? 'selected' : '' }}>
                           {{ $var->sku }}
                         </option>

@@ -526,12 +526,22 @@
     $('#payment_amount').val(net.toFixed(2));
   }
 
+  // A size picked by the user → that size's own selling price
+  // (select2:select fires only for a user's choice, so saved prices are never overwritten on load)
+  $(function () {
+    $(document).on('select2:select', '.variation-select', function () {
+      const p = $(this).find(':selected').attr('data-price');
+      const i = (this.id || '').split('_')[1];
+      if (i && p !== undefined && p !== '') { $(`#price_${i}`).val(p); rowTotal(i); }
+    });
+  });
+
   function loadVariations(row, productId, preselectId = null) {
     const $var = row.find('.variation-select');
     $var.html('<option value="">Loading...</option>').prop('disabled', true);
     $.get(`/product/${productId}/variations`, function (data) {
       let opts = '<option value="">No Variation</option>';
-      (data.variation || []).forEach(v => { opts += `<option value="${v.id}">${v.sku}</option>`; });
+      (data.variation || []).forEach(v => { opts += `<option value="${v.id}" data-price="${v.price ?? ''}">${v.sku}</option>`; });
       $var.html(opts).prop('disabled', false);
       if ($var.hasClass('select2-hidden-accessible')) $var.select2('destroy');
       $var.select2({ width: '100%', dropdownAutoWidth: true });
