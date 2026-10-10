@@ -19,17 +19,17 @@ class ProductCategorySeeder extends Seeder
     public function run(): void
     {
         $categories = [
-            ['name' => '3pc Kurta Trouser',    'code' => '3KT'],
-            ['name' => '3pc Prince Coat',      'code' => '3PC'],
-            ['name' => '3pc Sherwani',         'code' => '3SH'],
-            ['name' => 'Waistcoat',            'code' => 'WC'],
-            ['name' => 'Sherwani',             'code' => 'SH'],
-            ['name' => 'Plain Kurta Trouser',  'code' => 'PKT'],
-            ['name' => 'Design Kurta Trouser', 'code' => 'DKT'],
-            ['name' => 'Prince Coat',          'code' => 'PC'],
-            ['name' => '5pcs Suit',            'code' => '5S'],
-            ['name' => '4pcs Suit',            'code' => '4S'],
-            ['name' => '3pcs Suit',            'code' => '3S'],
+            ['name' => 'Waist Coat Suit',  'code' => 'WS'],
+            ['name' => 'Prince Coat Suit', 'code' => 'PS'],
+            ['name' => 'Sherwani Set',     'code' => 'SS'],
+            ['name' => 'Waistcoat',        'code' => 'W'],
+            ['name' => 'Prince Coat',      'code' => 'P'],
+            ['name' => 'Sherwani',         'code' => 'S'],
+            ['name' => 'Kurta Set',        'code' => 'KS'],
+            ['name' => 'Kurta',            'code' => 'K'],
+            ['name' => '5pcs Coat Pent',   'code' => '5C'],
+            ['name' => '4pcs Coat Pent',   'code' => '4C'],
+            ['name' => '3pcs Pant Shirt',  'code' => '3P'],
 
             // Raw material — fabric purchased and dropped at CMT (item type "raw")
             ['name' => 'Fabric',               'code' => 'FAB'],
