@@ -7,6 +7,7 @@ use App\Models\ProductCategory;
 use App\Models\ShopifyStore;
 use App\Models\ShopifySyncLog;
 use App\Jobs\ProcessShopifyImport;
+use App\Jobs\PushProductsToShopify;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
@@ -28,8 +29,9 @@ class ShopifyStoreController extends Controller
         $stores     = ShopifyStore::orderBy('shop_name')->get();
         $categories = ProductCategory::orderBy('name')->get();
         $units      = MeasurementUnit::orderBy('name')->get();
+        $newCount   = PushProductsToShopify::eligibleQuery()->count();   // products not yet on Shopify
 
-        return view('shopify.settings', compact('stores', 'categories', 'units'));
+        return view('shopify.settings', compact('stores', 'categories', 'units', 'newCount'));
     }
 
     // ─────────────────────────────────────────────
@@ -291,6 +293,56 @@ class ShopifyStoreController extends Controller
     // ─────────────────────────────────────────────
     //  Manual sync
     // ─────────────────────────────────────────────
+    // ─────────────────────────────────────────────
+    //  Push software → Shopify (new products only, as Draft)
+    // ─────────────────────────────────────────────
+
+    /** Shopify Stores page: push every product that is not on Shopify yet. */
+    public function pushNew($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        return $this->dispatchPush($store, null);
+    }
+
+    /** Products list: push the ticked products to the chosen store. */
+    public function pushSelected(Request $request)
+    {
+        $request->validate([
+            'store_id'      => 'required|exists:shopify_stores,id',
+            'product_ids'   => 'required|array|min:1',
+            'product_ids.*' => 'integer|exists:products,id',
+        ], ['product_ids.required' => 'Tick at least one product to push.']);
+
+        return $this->dispatchPush(ShopifyStore::findOrFail($request->store_id), array_map('intval', $request->product_ids));
+    }
+
+    private function dispatchPush(ShopifyStore $store, ?array $productIds)
+    {
+        if (!$store->isConnected()) {
+            return back()->with('error', "{$store->shop_name} is not connected.");
+        }
+
+        $count = PushProductsToShopify::eligibleQuery($productIds)->count();
+        if ($count === 0) {
+            return back()->with('error', $productIds
+                ? 'None of the selected products can be pushed — only active finished goods that are not on Shopify yet are sent.'
+                : 'All products are already on Shopify — nothing new to push.');
+        }
+
+        ShopifySyncLog::where('shopify_store_id', $store->id)->where('direction', 'push')->where('status', 'processing')
+            ->update(['status' => 'failed', 'error_message' => 'Interrupted by a new push.']);
+
+        $log = ShopifySyncLog::create([
+            'shopify_store_id' => $store->id,
+            'status'           => 'pending',
+            'direction'        => 'push',
+        ]);
+        PushProductsToShopify::dispatch($store, $log, $productIds);
+
+        return redirect()->route('shopify.settings')->with('success',
+            "Pushing {$count} product(s) to {$store->shop_name} as Draft — see Sync History below for progress.");
+    }
+
     public function manualSync($id)
     {
         $store = ShopifyStore::findOrFail($id);
@@ -373,12 +425,14 @@ class ShopifyStoreController extends Controller
 
         // Interrupt any sync that got stuck in "processing"
         ShopifySyncLog::where('shopify_store_id', $store->id)
+            ->where('direction', 'import')
             ->where('status', 'processing')
             ->update(['status' => 'failed', 'error_message' => 'Interrupted by new sync.']);
 
         $log = ShopifySyncLog::create([
             'shopify_store_id' => $store->id,
             'status'           => 'pending',
+            'direction'        => 'import',
         ]);
 
         // Dispatch to the queue — job runs asynchronously

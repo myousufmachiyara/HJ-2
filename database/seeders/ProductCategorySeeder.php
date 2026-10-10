@@ -29,11 +29,11 @@ class ProductCategorySeeder extends Seeder
             ['name' => 'Kurta',            'code' => 'K'],
             ['name' => '5pcs Coat Pent',   'code' => '5C'],
             ['name' => '4pcs Coat Pent',   'code' => '4C'],
-            ['name' => '3pcs Pant Shirt',  'code' => '3P'],
+            ['name' => '3pcs Pan Shirt',  'code' => '3P'],
 
             // Raw material — fabric purchased and dropped at CMT (item type "raw")
             ['name' => 'Fabric',               'code' => 'FAB'],
-        ];
+        ];  
 
         foreach ($categories as $cat) {
             $row = ProductCategory::withTrashed()->updateOrCreate(['code' => $cat['code']], $cat);

@@ -245,6 +245,14 @@ Route::middleware(['auth'])->group(function () {
         Route::post('import', [ShopifyStoreController::class, 'import'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('import');
+
+        // Push software → Shopify (new products only, created as Draft)
+        Route::post('store/{id}/push', [ShopifyStoreController::class, 'pushNew'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.push');
+        Route::post('push-selected', [ShopifyStoreController::class, 'pushSelected'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('push.selected');
     });
 
     // ── Bulk Excel import (items only) ─────────────────────────────────

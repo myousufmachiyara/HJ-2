@@ -44,7 +44,7 @@ return [
     // notice instead of editing code.
     'shopify' => [
         'api_version' => env('SHOPIFY_API_VERSION', '2026-07'),
-        'scopes'      => env('SHOPIFY_SCOPES', 'read_products,read_inventory'),
+        'scopes'      => env('SHOPIFY_SCOPES', 'read_products,write_products,read_inventory'),
     ],
 
 ];

@@ -104,6 +104,7 @@
                         <strong>Redirect URL</strong> — paste this exactly into Shopify Dev Dashboard → your app → Versions → Redirect URLs:
                         <code class="d-block user-select-all mt-1">{{ route('shopify.oauth.callback') }}</code>
                         Required scopes: <code>{{ config('services.shopify.scopes') }}</code>
+                        <span class="d-block mt-1"><strong>write_products</strong> is needed for <em>Push</em> — add it to the app's scopes in Dev Dashboard → Versions and release a new version.</span>
                     </div>
 
                     <div class="alert alert-info py-2 small">
@@ -198,8 +199,17 @@
                                     @if($store->status === 'connected')
                                     <form action="{{ route('shopify.store.sync', $store->id) }}" method="POST">
                                         @csrf
-                                        <button type="submit" class="btn btn-sm btn-info text-white">
+                                        <button type="submit" class="btn btn-sm btn-info text-white" title="Fetch products from Shopify into the software">
                                             Sync Now
+                                        </button>
+                                    </form>
+                                    {{-- Push software → Shopify: new products only, as Draft --}}
+                                    <form action="{{ route('shopify.store.push', $store->id) }}" method="POST"
+                                          onsubmit="return confirm('Push {{ $newCount }} new product(s) to {{ addslashes($store->shop_name) }} as Draft?')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-primary" {{ $newCount ? '' : 'disabled' }}
+                                                title="Send products that are not on Shopify yet (created as Draft, no stock)">
+                                            Push New ({{ $newCount }})
                                         </button>
                                     </form>
                                     @endif
@@ -240,16 +250,24 @@
                     <thead class="table-light">
                         <tr>
                             <th>Store</th>
+                            <th>Type</th>
                             <th>Date</th>
                             <th>Status</th>
                             <th>Progress</th>
-                            <th>Errors</th>
+                            <th>Notes / Errors</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse(\App\Models\ShopifySyncLog::with('store')->latest()->take(10)->get() as $log)
+                        @forelse(\App\Models\ShopifySyncLog::with('store')->latest()->take(15)->get() as $log)
                         <tr>
                             <td>{{ $log->store?->shop_name ?? '—' }}</td>
+                            <td>
+                                @if(($log->direction ?? 'import') === 'push')
+                                    <span class="badge bg-primary">Push ↑</span>
+                                @else
+                                    <span class="badge bg-light text-dark border">Import ↓</span>
+                                @endif
+                            </td>
                             <td>{{ $log->created_at->format('M d, H:i') }}</td>
                             <td>
                                 @if($log->status === 'completed')
@@ -262,12 +280,23 @@
                                     <span class="badge bg-danger">Failed</span>
                                 @endif
                             </td>
-                            <td>{{ $log->synced_products }} / {{ $log->total_products }}</td>
-                            <td class="small text-danger">{{ Str::limit($log->error_message, 60) }}</td>
+                            <td>
+                                {{ $log->synced_products }} / {{ $log->total_products }}
+                                @if($log->failed_products)<br><small class="text-danger">{{ $log->failed_products }} failed</small>@endif
+                                @if($log->skipped_products)<br><small class="text-muted">{{ $log->skipped_products }} skipped</small>@endif
+                            </td>
+                            <td class="small text-danger">
+                                @if(strlen((string) $log->error_message) > 80)
+                                    <details><summary>{{ Str::limit($log->error_message, 80) }}</summary>
+                                        <div style="white-space:pre-wrap">{{ str_replace(' | ', "\n", $log->error_message) }}</div></details>
+                                @else
+                                    {{ $log->error_message }}
+                                @endif
+                            </td>
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="5" class="text-muted text-center">No sync history yet.</td>
+                            <td colspan="6" class="text-muted text-center">No sync history yet.</td>
                         </tr>
                         @endforelse
                     </tbody>

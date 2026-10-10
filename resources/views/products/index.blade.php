@@ -11,6 +11,9 @@
       @elseif (session('error'))
         <div class="alert alert-danger">{{ session('error') }}</div>
       @endif
+      @if ($errors->any())
+        <div class="alert alert-danger">{{ implode(' ', $errors->all()) }}</div>
+      @endif
 
       <header class="card-header">
         <div style="display: flex;justify-content: space-between;">
@@ -37,22 +40,48 @@
           <small id="importMsg" class="text-muted"></small>
         </div>
 
+        @if($shopifyStores->isNotEmpty())
+          {{-- Push ticked products to Shopify (new products only, created as Draft, no stock) --}}
+          <form id="shopifyPushForm" action="{{ route('shopify.push.selected') }}" method="POST" class="d-flex flex-wrap align-items-center gap-2 mb-3 p-2 border rounded bg-light">
+            @csrf
+            <i class="fab fa-shopify text-success fa-lg"></i>
+            <strong>Shopify:</strong>
+            <span><span id="pushCount">0</span> ticked</span>
+            @if($shopifyStores->count() > 1)
+              <select name="store_id" class="form-select form-select-sm" style="width:auto">
+                @foreach($shopifyStores as $st)<option value="{{ $st->id }}">{{ $st->shop_name }}</option>@endforeach
+              </select>
+            @else
+              <input type="hidden" name="store_id" value="{{ $shopifyStores->first()->id }}">
+              <span class="text-muted">→ {{ $shopifyStores->first()->shop_name }}</span>
+            @endif
+            <button type="submit" class="btn btn-sm btn-success" id="pushBtn" disabled><i class="fas fa-upload"></i> Push to Shopify</button>
+            <small class="text-muted">Only finished goods not yet on Shopify can be ticked. Created as <b>Draft</b>; stock is not sent.</small>
+          </form>
+        @endif
+
         <div class="modal-wrapper table-scroll">
           <table class="table table-bordered table-striped mb-0" id="cust-datatable-default">
             <thead>
               <tr>
+                @if($shopifyStores->isNotEmpty())<th width="3%"><input type="checkbox" id="pushAll" title="Tick all that can be pushed"></th>@endif
                 <th>S.No</th>
                 <th>Image</th>
                 <th>Item Name</th>
                 <th>Brand</th>
                 <th>SKU</th>
                 <th>Category</th>
+                <th>Shopify</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               @foreach($products as $index => $product)
+              @php $canPush = $product->item_type === 'fg' && $product->is_active && !$product->shopify_product_id; @endphp
               <tr>
+                @if($shopifyStores->isNotEmpty())
+                  <td>@if($canPush)<input type="checkbox" class="push-check" value="{{ $product->id }}">@endif</td>
+                @endif
                 <td>{{ $index + 1 }}</td>
                 <td>
                   @if($product->images->first())
@@ -65,6 +94,15 @@
                 <td>{{ $product->brand ?? '-' }}</td>
                 <td>{{ $product->sku }}</td>
                 <td>{{ $product->category->name ?? '-' }}</td>
+                <td>
+                  @if($product->shopify_product_id)
+                    <span class="badge bg-success" title="{{ $product->shopifyStore?->shop_name }}">On Shopify</span>
+                  @elseif($canPush)
+                    <span class="badge bg-light text-dark border">Not pushed</span>
+                  @else
+                    <span class="text-muted">—</span>
+                  @endif
+                </td>
                 <td>
                   <a href="{{ route('products.edit', $product->id) }}" class="text-primary"><i class="fa fa-edit"></i></a>
                   @if($product->item_type === 'raw')
@@ -126,8 +164,29 @@
 
 <script>
   $(document).ready(function () {
-    $('#cust-datatable-default').DataTable({
+    const productTable = $('#cust-datatable-default').DataTable({
       "pageLength": 100
+    });
+
+    // ── Push to Shopify: ticks on every page of the table count ──
+    function pushTicked() { return productTable.$('input.push-check:checked'); }
+    function refreshPush() {
+      const n = pushTicked().length;
+      $('#pushCount').text(n);
+      $('#pushBtn').prop('disabled', n === 0);
+    }
+    $(document).on('change', 'input.push-check', refreshPush);
+    $('#pushAll').on('change', function () {
+      productTable.$('input.push-check').prop('checked', this.checked);
+      refreshPush();
+    });
+    $('#shopifyPushForm').on('submit', function () {
+      const ids = pushTicked().map(function () { return this.value; }).get();
+      if (!ids.length) return false;
+      if (!confirm('Push ' + ids.length + ' product(s) to Shopify as Draft?')) return false;
+      $(this).find('input[name="product_ids[]"]').remove();
+      ids.forEach(id => $(this).append(`<input type="hidden" name="product_ids[]" value="${id}">`));
+      return true;
     });
 
     // Auto-start progress tracking after a bulk import was queued.

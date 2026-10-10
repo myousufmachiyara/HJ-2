@@ -27,9 +27,13 @@ class ProductController extends Controller
 {
     public function index()
     {
-        $products   = Product::with('category', 'variations')->get();
+        $products   = Product::with('category', 'variations', 'images', 'shopifyStore')->get();
         $categories = ProductCategory::all();
-        return view('products.index', compact('products', 'categories'));
+        // stores products can be pushed to (Push to Shopify button)
+        $shopifyStores = auth()->user()?->can('shopify_stores.edit')
+            ? \App\Models\ShopifyStore::orderBy('shop_name')->get()->filter->isConnected()->values()
+            : collect();
+        return view('products.index', compact('products', 'categories', 'shopifyStores'));
     }
 
     public function barcodeSelection()

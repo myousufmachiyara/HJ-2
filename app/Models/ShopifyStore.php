@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ShopifyStore extends Model
 {
@@ -165,6 +166,55 @@ class ShopifyStore extends Model
         }
 
         return $this->getAccessToken();
+    }
+
+    /**
+     * Run one Admin GraphQL call. Retries when Shopify says THROTTLED / 429,
+     * returns the "data" part, and throws a readable message on any error.
+     */
+    public function graphql(string $query, array $variables = []): array
+    {
+        $token = $this->getValidAccessToken();
+        if (!$token) {
+            throw new \RuntimeException('No valid Shopify access token — reconnect the store in Shopify settings.');
+        }
+
+        $version = config('services.shopify.api_version', '2026-07');
+        $url     = "https://{$this->shop_url}/admin/api/{$version}/graphql.json";
+
+        for ($attempt = 1; ; $attempt++) {
+            $response = Http::timeout(60)
+                ->withHeaders(['X-Shopify-Access-Token' => $token])
+                ->acceptJson()
+                ->post($url, ['query' => $query, 'variables' => $variables ?: new \stdClass()]);
+
+            $throttled = $response->status() === 429
+                || collect($response->json('errors') ?? [])->contains(fn ($e) => ($e['extensions']['code'] ?? null) === 'THROTTLED');
+
+            if ($throttled && $attempt < 6) {
+                usleep(2_000_000 * $attempt);   // let Shopify's cost bucket refill
+                continue;
+            }
+
+            if (in_array($response->status(), [401, 403], true)) {
+                throw new \RuntimeException("Shopify refused access (HTTP {$response->status()}). The app needs the write_products scope — "
+                    . 'add it in Dev Dashboard → your app → Versions, release the version, then use Sync Now/reconnect.');
+            }
+            if (!$response->successful()) {
+                throw new \RuntimeException("Shopify API error (HTTP {$response->status()}): " . Str::limit($response->body(), 200));
+            }
+
+            $errors = $response->json('errors');
+            if ($errors) {
+                $msg = is_array($errors) ? collect($errors)->pluck('message')->filter()->implode('; ') : (string) $errors;
+                if (stripos($msg, 'access denied') !== false || stripos($msg, 'write_products') !== false) {
+                    $msg = 'The Shopify app is missing the write_products scope — add it in Dev Dashboard → your app → Versions and release. (' . $msg . ')';
+                }
+                throw new \RuntimeException(Str::limit($msg ?: 'Unknown Shopify error', 300));
+            }
+
+            return $response->json('data') ?? [];
+        }
     }
 
     // ─────────────────────────────────────────────

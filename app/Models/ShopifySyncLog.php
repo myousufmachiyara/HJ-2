@@ -12,7 +12,9 @@ class ShopifySyncLog extends Model
         'total_products', 
         'synced_products', 
         'failed_products', 
-        'error_message'
+        'error_message',
+        'direction',          // import (Shopify → software) | push (software → Shopify)
+        'skipped_products',
     ];
 
     public function store()

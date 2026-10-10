@@ -184,15 +184,12 @@ class ProcessShopifyImport implements ShouldQueue
     {
         $firstVariant = $shp['variants'][0] ?? [];
 
-        $product = Product::updateOrCreate(
-            // Match on Shopify's own product ID, scoped to this store — never
-            // on SKU. Stable even if the merchant renames the SKU, and scoped
-            // so two different stores can never collide on the same numeric id.
-            [
-                'shopify_store_id'   => $this->store->id,
-                'shopify_product_id' => (string) $shp['id'],
-            ],
-            [
+        // Already linked locally (imported before, or created in the software and pushed)?
+        // Then keep its own SKU, category and unit — only Shopify's details are refreshed.
+        $existing = Product::where('shopify_store_id', $this->store->id)
+            ->where('shopify_product_id', (string) $shp['id'])->first();
+
+        $values = [
                 'name'              => $shp['title'],
                 // FIX: product SKU is now always store-scoped and never
                 // duplicates the first variant's SKU (see resolveProductSku).
@@ -206,8 +203,29 @@ class ProcessShopifyImport implements ShouldQueue
                 'category_id'       => $this->resolveCategoryId(),
                 'measurement_unit'  => $this->resolveMeasurementUnitId(),
                 'selling_price'     => $firstVariant['price'] ?? 0,
-            ]
+        ];
+        if ($existing) {
+            unset($values['sku'], $values['category_id'], $values['measurement_unit']);
+        }
+
+        $product = Product::updateOrCreate(
+            // Match on Shopify's own product ID, scoped to this store — never
+            // on SKU. Stable even if the merchant renames the SKU, and scoped
+            // so two different stores can never collide on the same numeric id.
+            [
+                'shopify_store_id'   => $this->store->id,
+                'shopify_product_id' => (string) $shp['id'],
+            ],
+            $values
         );
+
+        // A product made in the software without sizes is pushed with Shopify's single
+        // "Default Title" variant — don't turn that into a fake size on the way back.
+        $onlyDefault = count($shp['variants'] ?? []) === 1
+            && ($shp['variants'][0]['option1'] ?? null) === 'Default Title';
+        if ($existing && $onlyDefault && !$existing->variations()->exists()) {
+            return;
+        }
 
         // Map Shopify options → local Attributes
         $optionMapping = [];
