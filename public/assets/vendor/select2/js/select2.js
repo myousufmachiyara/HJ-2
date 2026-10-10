@@ -6176,9 +6176,15 @@ document.addEventListener('DOMContentLoaded', function() {
       }
   });
 
+  // Focus the search box of THIS dropdown only. (document.querySelector
+  // picked the first search box on the page — e.g. a multi-select's inline
+  // search — so the page jumped to a different select.)
   $(document).on('select2:open', selectClassPattern, function() {
+      const s2 = $(this).data('select2');
       setTimeout(function() {
-          const searchField = document.querySelector('.select2-search__field');
+          if (!s2) return;
+          const searchField = s2.$dropdown.find('.select2-search__field')[0]    // single select: box inside the dropdown
+                           || s2.$container.find('.select2-search__field')[0];  // multi select: inline box
           if (searchField) {
               searchField.focus();
           }
