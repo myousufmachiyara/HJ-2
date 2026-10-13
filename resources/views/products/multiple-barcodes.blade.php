@@ -71,7 +71,7 @@
 
         .barcode-label strong {
             font-size: 10px;
-            font-weight: 500;
+            font-weight: 700;
         }
 
         .barcode-label small {
