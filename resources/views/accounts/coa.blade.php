@@ -99,9 +99,9 @@
                                     <td><strong>{{ $item->name }}</strong></td>
                                     <td>{{ $item->subHeadOfAccount->name ?? '—' }}</td>
                                     <td>
-                                        <strong>{{ $accountTypes[$item->account_type] ?? ucfirst($item->account_type ?? '—') }} .'('.{{ $vendorTypes[$item->vendor_type] ?? ucfirst($item->vendor_type) }}.')'</strong>
+                                        <strong>{{ $accountTypes[$item->account_type] ?? ucfirst($item->account_type ?? '—') }}</strong>
                                         @if($item->account_type === 'vendor' && $item->vendor_type)
-                                            <br><small class="text-muted"></small>
+                                            <small class="text-muted">{{ $vendorTypes[$item->vendor_type] ?? ucfirst($item->vendor_type) }}</small>
                                         @endif
                                     </td>
                                     <td>{{ $item->contact_no ?? '—' }}</td>
