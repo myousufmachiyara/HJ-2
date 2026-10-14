@@ -87,6 +87,7 @@
               @endcan
               @can('products.index')
                 <li><a class="nav-link" href="{{ route('products.index') }}">All Products</a></li>
+                <li><a class="nav-link" href="{{ route('panna-consumption.index') }}">PANNA Consumption</a></li>
               @endcan
               @if(auth()->user()->can('shopify_stores.index'))
                 <li><a class="nav-link" href="{{ route('shopify.settings') }}">Shopify Stores</a></li>

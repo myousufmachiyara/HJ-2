@@ -185,15 +185,19 @@ class PurchaseReportController extends Controller
             ->get()
             ->groupBy(fn ($d) => $d->receiving->vendor_id . '|' . $d->fabric_id . '|' . ($d->fabric_variation_id ?? 0));
 
-        $mappings = \App\Models\FabricArticle::with(['article:id,name', 'articleVariation:id,sku'])->get()
-            ->groupBy(fn ($m) => $m->fabric_id . '|' . ($m->fabric_variation_id ?? 0));
+        // PANNA value of each fabric variation → what can still be cut (category consumption)
+        $pannaOf = \Illuminate\Support\Facades\DB::table('product_variation_attribute_values as x')
+            ->join('attribute_values as v', 'v.id', '=', 'x.attribute_value_id')
+            ->where('v.attribute_id', \App\Services\PannaConsumption::pannaAttributeId())
+            ->whereIn('x.product_variation_id', $ledger->pluck('variation_id')->filter())
+            ->pluck('v.id', 'x.product_variation_id');
 
         $names = \App\Models\Product::whereIn('id', $ledger->pluck('product_id'))->pluck('name', 'id');
         $skus  = \App\Models\ProductVariation::whereIn('id', $ledger->pluck('variation_id')->filter())->pluck('sku', 'id');
 
-        return $ledger->groupBy('location_id')->map(function ($lines, $locId) use ($locs, $received, $mappings, $cost, $names, $skus) {
+        return $ledger->groupBy('location_id')->map(function ($lines, $locId) use ($locs, $received, $pannaOf, $cost, $names, $skus) {
             $loc = $locs[$locId];
-            $fabrics = $lines->map(function ($l) use ($loc, $received, $mappings, $cost, $names, $skus) {
+            $fabrics = $lines->map(function ($l) use ($loc, $received, $pannaOf, $cost, $names, $skus) {
                 $key       = $loc->chart_of_account_id . '|' . $l->product_id . '|' . ($l->variation_id ?? 0);
                 $remaining = round((float) $l->remaining, 3);
                 $articles  = ($received[$key] ?? collect())
@@ -203,12 +207,7 @@ class PurchaseReportController extends Controller
                         'pcs'     => (float) $g->sum('received_qty'),
                         'fabric'  => round((float) $g->sum('fabric_qty'), 3),
                     ])->values();
-                $canMake = ($mappings[$l->product_id . '|' . ($l->variation_id ?? 0)] ?? collect())
-                    ->map(fn ($m) => (object) [
-                        'article'     => ($m->article->name ?? '-') . ' (' . ($m->articleVariation->sku ?? 'all sizes') . ')',
-                        'consumption' => $m->consumption,
-                        'pcs'         => $remaining > 0 && $m->consumption > 0 ? floor($remaining / $m->consumption) : 0,
-                    ])->values();
+                $canMake = \App\Services\PannaConsumption::canMake($l->variation_id ? ($pannaOf[$l->variation_id] ?? null) : null, $remaining);
 
                 return (object) [
                     'fabric'    => $names[$l->product_id] ?? ('#' . $l->product_id),

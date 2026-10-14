@@ -40,4 +40,9 @@ class ProductionReceiving extends Model
     {
         return $this->belongsTo(Production::class);
     }
+
+    public function attachments()
+    {
+        return $this->hasMany(ProductionReceivingAttachment::class);
+    }
 }

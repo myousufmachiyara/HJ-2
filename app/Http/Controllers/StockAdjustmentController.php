@@ -41,6 +41,7 @@ class StockAdjustmentController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('date'), 'date');   // no back dates (except super admin)
         $data = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -77,6 +78,7 @@ class StockAdjustmentController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\StockAdjustment::find($id), 'date', $request->input('date'), 'date');
         $data = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -102,6 +104,7 @@ class StockAdjustmentController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\StockAdjustment::find($id), 'date');
         DB::beginTransaction();
         try {
             $adj = StockAdjustment::findOrFail($id);

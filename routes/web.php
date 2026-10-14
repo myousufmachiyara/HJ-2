@@ -43,6 +43,12 @@ Route::middleware(['auth'])->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    // keeps the login alive while a page is open and hands out a fresh form token
+    Route::get('/keep-alive', fn () => response()->json(['token' => csrf_token()]))->name('keep-alive');
+
+    // open an attachment (purchase / purchase-return / receiving / voucher)
+    Route::get('/attachments/{kind}/{id}/{n?}', [\App\Http\Controllers\AttachmentController::class, 'show'])
+        ->whereNumber(['id', 'n'])->name('attachments.show');
     Route::view('/unauthorized', 'unauthorized')->name('unauthorized');
 
     // ── User helpers ──────────────────────────────────────────────────
@@ -58,8 +64,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/product/{product}/variations',         [ProductController::class, 'getVariations'])->name('product.variations');
     Route::get('/product/{product}/variations2',        [ProductController::class, 'getVariations2'])->name('product.variations2');
     Route::get('/product/{product}/productions',        [ProductionController::class, 'getProductProductions'])->name('product.productions');
-    // Fabric → articles consumption setup (raw items)
-    Route::get('/products/{product}/articles',         [\App\Http\Controllers\FabricArticleController::class, 'index'])->name('products.fabric-articles')->middleware('check.permission:products.edit');
+    // Fabric consumption per product CATEGORY and PANNA (replaces the per-fabric article lines)
+    Route::get('/panna-consumption',  [\App\Http\Controllers\PannaConsumptionController::class, 'index'])->name('panna-consumption.index')->middleware('check.permission:products.index');
+    Route::post('/panna-consumption', [\App\Http\Controllers\PannaConsumptionController::class, 'store'])->name('panna-consumption.store')->middleware('check.permission:products.edit');
+    // old per-fabric pages → the category page
+    Route::get('/products/{product}/articles', fn () => redirect()->route('panna-consumption.index'))->name('products.fabric-articles')->middleware('check.permission:products.edit');
     Route::post('/products/{product}/articles',        [\App\Http\Controllers\FabricArticleController::class, 'store'])->name('products.fabric-articles.store')->middleware('check.permission:products.edit');
     Route::post('/products/{product}/articles/import', [\App\Http\Controllers\FabricArticleController::class, 'import'])->name('products.fabric-articles.import')->middleware('check.permission:products.edit');
     Route::get('/fabric-options',                      [\App\Http\Controllers\FabricArticleController::class, 'optionsForArticle'])->name('fabric.options');

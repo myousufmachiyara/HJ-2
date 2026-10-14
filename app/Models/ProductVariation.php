@@ -18,6 +18,7 @@ class ProductVariation extends Model
         // silently dropped on every import (not fillable, no column).
         'selling_price',
         'compare_at_price',   // per size; blank = product's default
+        'shopify_variant_id', // Shopify's id of this size (set by push / import)
     ];
 
     /** Selling price of this size: its own price, else the product's default. */

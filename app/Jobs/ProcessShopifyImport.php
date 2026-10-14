@@ -238,12 +238,24 @@ class ProcessShopifyImport implements ShouldQueue
         }
 
         // Upsert each variant individually — a failure on one doesn't stop the rest
+        $failed = false;
         foreach ($shp['variants'] as $position => $v) {
             try {
                 $this->syncVariant($v, $product->id, $position, $optionMapping);
             } catch (\Throwable $e) {
+                $failed = true;
                 Log::warning("  Skipped variant {$v['id']} of product {$shp['id']}: {$e->getMessage()}");
             }
+        }
+
+        // Sizes deleted on Shopify are removed here too (only sizes that came from /
+        // were matched to this Shopify product; sizes made only in the software stay).
+        if (!$failed) {
+            $keep = collect($shp['variants'])->pluck('id')->map(fn ($id) => (string) $id)->all();
+            ProductVariation::where('product_id', $product->id)
+                ->whereNotNull('shopify_variant_id')
+                ->whereNotIn('shopify_variant_id', $keep)
+                ->get()->each->delete();   // soft delete — history stays
         }
     }
 
@@ -294,22 +306,22 @@ class ProcessShopifyImport implements ShouldQueue
             }
         }
 
-        // Link variant → attribute values
+        // Link variant → attribute values. Replaces the old values, so a size
+        // changed on Shopify (M → L) updates this variation instead of adding to it.
+        $valueIds = [];
         foreach (['option1', 'option2', 'option3'] as $optKey) {
             if (empty($v[$optKey])) continue;
 
             $attrId = $optionMapping[$optKey] ?? null;
             if (!$attrId) continue;
 
-            $val = AttributeValue::firstOrCreate([
+            $valueIds[] = AttributeValue::firstOrCreate([
                 'attribute_id' => $attrId,
                 'value'        => $v[$optKey],
-            ]);
-
-            ProductVariationAttributeValue::firstOrCreate([
-                'product_variation_id' => $pv->id,
-                'attribute_value_id'   => $val->id,
-            ]);
+            ])->id;
+        }
+        if ($valueIds) {
+            $pv->attributeValues()->sync($valueIds);
         }
     }
 
@@ -318,12 +330,16 @@ class ProcessShopifyImport implements ShouldQueue
         // Re-imports: find the row this Shopify variant created earlier under
         // either its real or its store-scoped SKU so a fallback SKU from a
         // previous run doesn't produce a duplicate row.
-        $existing = ProductVariation::where('product_id', $productId)
-            ->whereIn('sku', array_unique([$sku, $this->resolveVariantSku($v), 'SHP-' . $this->store->id . '-V-' . $v['id']]))
-            ->first();
+        // Same Shopify variant as before (by its Shopify id) → update it, even if its
+        // SKU or size changed on Shopify; otherwise match by SKU as before.
+        $existing = ProductVariation::where('product_id', $productId)->where('shopify_variant_id', (string) $v['id'])->first()
+            ?? ProductVariation::where('product_id', $productId)
+                ->whereIn('sku', array_unique([$sku, $this->resolveVariantSku($v), 'SHP-' . $this->store->id . '-V-' . $v['id']]))
+                ->first();
 
         $data = [
-            'product_id'     => $productId,
+            'product_id'         => $productId,
+            'shopify_variant_id' => (string) $v['id'],
             'sku'            => $sku,
             'barcode'        => $barcode,
             'selling_price'  => $v['price'] ?? 0,

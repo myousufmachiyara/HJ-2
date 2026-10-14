@@ -46,9 +46,7 @@
               <input type="text" name="ref_no" class="form-control">
             </div>
             <div class="col-md-3 mb-3">
-              <label>Attachments</label>
-              <input type="file" name="attachments[]" class="form-control" multiple
-                     accept=".pdf,.jpg,.jpeg,.png,.zip">
+              @include('partials.attachments')
             </div>
             <div class="col-md-4 mb-3">
               <label>Remarks</label>

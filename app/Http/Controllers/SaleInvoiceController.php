@@ -41,6 +41,7 @@ class SaleInvoiceController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('date'), 'date');   // no back dates (except super admin)
         $request->validate([
             'date'                    => 'required|date',
             'account_id'              => 'required|exists:chart_of_accounts,id',
@@ -145,6 +146,7 @@ class SaleInvoiceController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\SaleInvoice::find($id), 'date', $request->input('date'), 'date');
         $request->validate([
             'date'                 => 'required|date',
             'account_id'           => 'required|exists:chart_of_accounts,id',
@@ -211,6 +213,7 @@ class SaleInvoiceController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\SaleInvoice::find($id), 'date');
         DB::beginTransaction();
         try {
             $invoice = SaleInvoice::findOrFail($id);
@@ -264,6 +267,7 @@ class SaleInvoiceController extends Controller
 
     public function updatePayment(Request $request, $invoiceId, $paymentId)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\SaleInvoice::find($invoiceId), 'date', $request->input('payment_date'), 'payment_date');
         $request->validate([
             'account_id'   => 'required|exists:chart_of_accounts,id',
             'payment_date' => 'required|date',

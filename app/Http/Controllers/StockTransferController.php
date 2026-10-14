@@ -41,6 +41,7 @@ class StockTransferController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('date'), 'date');   // no back dates (except super admin)
         $data = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -76,6 +77,7 @@ class StockTransferController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\StockTransfer::find($id), 'date', $request->input('date'), 'date');
         $data = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -106,6 +108,7 @@ class StockTransferController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\StockTransfer::find($id), 'date');
         DB::beginTransaction();
         try {
             $transfer = StockTransfer::findOrFail($id);

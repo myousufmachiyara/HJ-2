@@ -75,6 +75,9 @@
 							<span class="mt-3 mx-2 text-start" style="display:block"> 
 								<input type="checkbox" onclick="showPassword()"> Show Password 
 							</span>
+							<label class="mx-2 text-start d-block" style="cursor:pointer">
+								<input type="checkbox" name="remember" value="1" {{ old('remember', '1') ? 'checked' : '' }}> Keep me signed in
+							</label>
 							<button type="submit" class="btn btn-primary mt-2" style="font-size: 0.9rem;padding: 8.52px 18px;border-radius:15px;width:100%">Continue</button>
 						</div>
 					</form>

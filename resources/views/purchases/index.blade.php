@@ -46,7 +46,7 @@
                 <td>
                   @if($invoice->attachments && count($invoice->attachments))
                     @foreach ($invoice->attachments as $file)
-                      <a href="{{ asset('storage/' . $file->attachment_path) }}" target="_blank">View</a><br>
+                      <a href="{{ route('attachments.show', ['purchase', $file->id]) }}" target="_blank" title="{{ \App\Support\Attachments::name($file) }}"><i class="fas fa-paperclip"></i> {{ \Illuminate\Support\Str::limit(\App\Support\Attachments::name($file), 18) }}</a><br>
                     @endforeach
                   @else
                     N/A

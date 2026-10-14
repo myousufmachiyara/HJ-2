@@ -129,8 +129,7 @@
                 <input type="number" class="form-control" name="amount" step="any" value="0" required>
               </div>
               <div class="col-lg-6 mb-2">
-                <label>Attachments</label>
-                <input type="file" class="form-control" name="att[]" multiple accept=".zip,application/pdf,image/png,image/jpeg">
+                @include('partials.attachments', ['name' => 'att[]'])
               </div>
               <div class="col-lg-12 mb-2">
                 <label>Remarks</label>
@@ -193,8 +192,7 @@
                 <input type="number" class="form-control" name="amount" id="update_amount" step="any" required>
               </div>
               <div class="col-lg-6 mb-2">
-                <label>Attachments</label>
-                <input type="file" class="form-control" name="att[]" multiple accept=".zip,application/pdf,image/png,image/jpeg">
+                <div id="update_attachments">@include('partials.attachments', ['name' => 'att[]'])</div>
               </div>
               <div class="col-lg-12 mb-2">
                 <label>Remarks</label>
@@ -272,6 +270,7 @@
         document.getElementById('update_remarks').value  = data.remarks ?? '';
         $('#update_ac_dr_sid').val(data.ac_dr_sid).trigger('change');
         $('#update_ac_cr_sid').val(data.ac_cr_sid).trigger('change');
+        attSetExisting(document.querySelector('#update_attachments .att-box'), data.attachment_links || []);
       });
   }
 

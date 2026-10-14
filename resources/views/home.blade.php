@@ -14,6 +14,7 @@
   {{-- ── KPI Cards ── --}}
   <div class="row g-3 mb-4">
 
+    @if($can['sales'])
     {{-- Today's Sales --}}
     <div class="col-6 col-md-3">
       <div class="kpi-card kpi-green">
@@ -40,6 +41,9 @@
       </div>
     </div>
 
+    @endif
+
+    @if($can['accounts'])
     {{-- Receivables --}}
     <div class="col-6 col-md-3">
       <div class="kpi-card kpi-orange">
@@ -63,12 +67,14 @@
         </div>
       </div>
     </div>
+    @endif
 
   </div>
 
   {{-- ── Production & Today Receiving KPIs ── --}}
   <div class="row g-3 mb-4">
 
+    @if(isset($stockValue))
     <div class="col-6 col-md-3">
       <a href="{{ route('reports.inventory') }}?tab=SR" class="text-decoration-none">
       <div class="kpi-card kpi-purple">
@@ -81,7 +87,9 @@
       </div>
       </a>
     </div>
+    @endif
 
+    @if($can['pdc'])
     <div class="col-6 col-md-3">
       <a href="{{ route('pdc_cheques.index') }}" class="text-decoration-none">
       <div class="kpi-card kpi-teal">
@@ -94,18 +102,22 @@
       </div>
       </a>
     </div>
+    @endif
 
+    @if($can['receiving'])
     <div class="col-6 col-md-3">
       <div class="kpi-card kpi-green">
         <div class="kpi-icon"><i class="fas fa-boxes"></i></div>
         <div class="kpi-body">
           <div class="kpi-label">Today Received</div>
           <div class="kpi-value">{{ number_format($todayReceivedPcs, 0) }} pcs</div>
-          <div class="kpi-sub">PKR {{ number_format($todayReceivedValue, 0) }}</div>
+          <div class="kpi-sub">@if($can['money'])PKR {{ number_format($todayReceivedValue, 0) }}@else From CMT today @endif</div>
         </div>
       </div>
     </div>
+    @endif
 
+    @if($can['products'])
     <div class="col-6 col-md-3">
       <div class="kpi-card kpi-red">
         <div class="kpi-icon"><i class="fas fa-exclamation-triangle"></i></div>
@@ -116,17 +128,19 @@
         </div>
       </div>
     </div>
+    @endif
 
   </div>
 
   {{-- ── Main Content Row ── --}}
   <div class="row g-3 mb-4">
 
+    @isset($chartData)
     {{-- Sales Chart --}}
-    <div class="col-md-8">
+    <div class="{{ $can['accounts'] ? 'col-md-8' : 'col-md-12' }}">
       <section class="card h-100">
         <header class="card-header d-flex justify-content-between align-items-center">
-          <h2 class="card-title mb-0">Sales vs Purchases (Last 6 Months)</h2>
+          <h2 class="card-title mb-0">{{ $can['sales'] && $can['purchases'] ? 'Sales vs Purchases' : ($can['sales'] ? 'Sales' : 'Purchases') }} (Last 6 Months)</h2>
         </header>
         <div class="card-body">
           <canvas id="salesChart" height="100"></canvas>
@@ -134,8 +148,11 @@
       </section>
     </div>
 
+    @endisset
+
+    @if($can['accounts'])
     {{-- Cash & Bank Positions --}}
-    <div class="col-md-4">
+    <div class="{{ isset($chartData) ? 'col-md-4' : 'col-md-12' }}">
       <section class="card h-100">
         <header class="card-header">
           <h2 class="card-title mb-0">Cash & Bank</h2>
@@ -163,12 +180,14 @@
         </div>
       </section>
     </div>
+    @endif
 
   </div>
 
   {{-- ── Bottom Row ── --}}
   <div class="row g-3 mb-4">
 
+    @if($can['production'])
     {{-- Pending Production Orders --}}
     <div class="col-md-6">
       <section class="card">
@@ -233,6 +252,9 @@
       </section>
     </div>
 
+    @endif
+
+    @if($can['products'])
     {{-- Low Stock Products --}}
     <div class="col-md-6">
       <section class="card">
@@ -296,12 +318,90 @@
         </div>
       </section>
     </div>
+    @endif
 
   </div>
+
+  @isset($laam)
+  {{-- ── LAAM: best sellers and their stock at LAAM ── --}}
+  <div class="row g-3 mb-4">
+    <div class="col-12">
+      <section class="card">
+        <header class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <h2 class="card-title mb-0"><i class="fas fa-store me-1"></i> LAAM — Best Sellers &amp; Stock at LAAM</h2>
+          <div class="d-flex align-items-center gap-3">
+            @if($can['laam_stock'] && $laam['accounts']->isNotEmpty())
+              <span class="small">At LAAM now: <strong>{{ number_format($laam['stockPcs'], 0) }} pcs</strong> · {{ $laam['skuCount'] }} sizes
+                @if($laam['stockValue'] !== null) · PKR {{ number_format($laam['stockValue'], 0) }}@endif</span>
+            @endif
+            @if($can['laam_sales'])
+            <form method="GET" class="d-flex align-items-center gap-1">
+              <small class="text-muted">Sold in last</small>
+              <select name="laam_days" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+                @foreach([7 => '7 days', 30 => '30 days', 90 => '90 days', 365 => '1 year'] as $d => $l)
+                  <option value="{{ $d }}" {{ $laam['days'] === $d ? 'selected' : '' }}>{{ $l }}</option>
+                @endforeach
+              </select>
+            </form>
+            @endif
+          </div>
+        </header>
+        <div class="card-body p-0">
+          @if($laam['accounts']->isEmpty())
+            <div class="p-3 text-muted">No customer account named <strong>LAAM</strong> found in the Chart of Accounts.</div>
+          @elseif($can['laam_sales'])
+            <div class="table-responsive" style="max-height:360px;overflow-y:auto;">
+              <table class="table table-sm table-hover mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th>#</th><th>Product</th><th>Size / SKU</th>
+                    <th class="text-end">Sold</th>
+                    @if($can['money'])<th class="text-end">Sales PKR</th>@endif
+                    @if($can['laam_stock'])<th class="text-end">Stock at LAAM</th><th class="text-end">Lasts</th>@endif
+                  </tr>
+                </thead>
+                <tbody>
+                  @forelse($laam['rows'] as $r)
+                    <tr>
+                      <td>{{ $loop->iteration }}</td>
+                      <td style="font-size:12px;" class="fw-600">{{ $r['name'] }}</td>
+                      <td style="font-size:12px;">{{ $r['sku'] }}</td>
+                      <td class="text-end fw-bold">{{ number_format($r['sold'], 0) }}</td>
+                      @if($can['money'])<td class="text-end" style="font-size:12px;">{{ number_format($r['amount'], 0) }}</td>@endif
+                      @if($can['laam_stock'])
+                        <td class="text-end">
+                          <span class="fw-bold {{ $r['stock'] <= 0 ? 'text-danger' : ($r['days_left'] !== null && $r['days_left'] < 15 ? 'text-warning' : 'text-success') }}">{{ number_format($r['stock'], 0) }}</span>
+                        </td>
+                        <td class="text-end" style="font-size:12px;">
+                          @if($r['stock'] <= 0)<span class="badge bg-danger">Out — send stock</span>
+                          @elseif($r['days_left'] !== null && $r['days_left'] < 15)<span class="badge bg-warning text-dark">~{{ $r['days_left'] }} days</span>
+                          @elseif($r['days_left'] !== null)~{{ $r['days_left'] }} days
+                          @endif
+                        </td>
+                      @endif
+                    </tr>
+                  @empty
+                    <tr><td colspan="7" class="text-center text-muted py-3">No LAAM sales in the last {{ $laam['days'] }} days.</td></tr>
+                  @endforelse
+                </tbody>
+              </table>
+            </div>
+            <div class="px-3 py-2 small text-muted">"Lasts" = stock at LAAM ÷ average daily sales in the period.</div>
+          @endif
+        </div>
+      </section>
+    </div>
+  </div>
+  @endisset
+
+  @unless($can['any'])
+    <div class="alert alert-info">Welcome! Use the menu on the left to open the modules you have access to.</div>
+  @endunless
 
   {{-- ── Today's Receiving + Recent Sales ── --}}
   <div class="row g-3">
 
+    @if($can['receiving'])
     {{-- Today's Production Receiving --}}
     <div class="col-md-5">
       <section class="card">
@@ -323,7 +423,7 @@
                 <div class="text-success fw-bold" style="font-size:13px;">
                   {{ number_format($rec['qty'], 0) }} pcs
                 </div>
-                <small class="text-muted">PKR {{ number_format($rec['value'], 0) }}</small>
+                @if($can['money'])<small class="text-muted">PKR {{ number_format($rec['value'], 0) }}</small>@endif
               </div>
             </div>
           @empty
@@ -335,6 +435,9 @@
       </section>
     </div>
 
+    @endif
+
+    @if($can['sales'])
     {{-- Recent Sales --}}
     <div class="col-md-7">
       <section class="card">
@@ -396,6 +499,7 @@
         </div>
       </section>
     </div>
+    @endif
 
   </div>
 
@@ -466,14 +570,17 @@
   });
 
   // ── Sales Chart ───────────────────────────────────────────────────
-  const chartData = @json($chartData);
+  const chartData = @json($chartData ?? []);
+  const salesCanvas = document.getElementById('salesChart');
 
-  const ctx = document.getElementById('salesChart').getContext('2d');
+  if (salesCanvas) {
+  const ctx = salesCanvas.getContext('2d');
   new Chart(ctx, {
     type: 'bar',
     data: {
       labels: chartData.map(d => d.month),
       datasets: [
+        @if($can['sales'])
         {
           label: 'Sales (PKR)',
           data: chartData.map(d => d.sales),
@@ -482,6 +589,8 @@
           borderWidth: 1,
           borderRadius: 6,
         },
+        @endif
+        @if($can['purchases'])
         {
           label: 'Purchases (PKR)',
           data: chartData.map(d => d.purchases),
@@ -490,6 +599,7 @@
           borderWidth: 1,
           borderRadius: 6,
         },
+        @endif
       ],
     },
     options: {
@@ -518,5 +628,6 @@
       },
     },
   });
+  }
 </script>
 @endsection

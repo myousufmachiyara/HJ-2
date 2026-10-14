@@ -86,7 +86,7 @@
       <div class="alert alert-info py-2">
         <i class="fas fa-info-circle me-1"></i>
         Fabric at each CMT vendor: <strong>given</strong> (purchases dropped there, stock moved in, opening) −
-        <strong>consumed</strong> by finished goods received (pieces × consumption from the fabric's article setup) −
+        <strong>consumed</strong> by finished goods received (pieces × consumption for the article's category and PANNA) −
         moved back = <strong>should remain</strong> with the vendor on {{ \Carbon\Carbon::parse($to)->format('d-M-Y') }}.
         <em>Can still make</em> is per article if the whole remaining fabric is used for that one article.
         Red = vendor used more than was given → check consumption or post a Physical Count.

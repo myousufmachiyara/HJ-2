@@ -519,9 +519,15 @@ class ProductController extends Controller
             if (is_array($request->variations)) {
                 foreach ($request->variations as $variationData) {
                     $variation = ProductVariation::findOrFail($variationData['id']);
+                    // barcode that was simply the old SKU follows the SKU when the size changes
+                    $barcode = $variationData['barcode'] ?? $variation->barcode;
+                    if ($barcode === $variation->sku && $variationData['sku'] !== $variation->sku
+                        && !ProductVariation::withTrashed()->where('barcode', $variationData['sku'])->where('id', '!=', $variation->id)->exists()) {
+                        $barcode = $variationData['sku'];
+                    }
                     $update = [
                         'sku'            => $variationData['sku'],
-                        'barcode'        => $variationData['barcode'] ?? $variation->barcode,
+                        'barcode'        => $barcode,
                         'stock_quantity' => $variationData['stock_quantity'] ?? 0,
                     ];
                     // price fields are posted only for finished goods; blank = product's default
@@ -609,7 +615,7 @@ class ProductController extends Controller
             return;
         }
         \App\Services\FabricSetup::syncPannas($product, (array) $request->input('fabric_pannas', []));
-        \App\Services\FabricSetup::saveArticles($product->fresh('variations'), (array) $request->input('fabric_articles', []));
+        // consumption is now per product category × PANNA (Products → PANNA Consumption)
     }
 
     /** Fabric balance PANNA-wise × location (warehouse / CMT …) from the stock ledger. */

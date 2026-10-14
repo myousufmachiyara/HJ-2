@@ -18,7 +18,12 @@
           <td>{{ \Carbon\Carbon::parse($row->date)->format('d-m-Y') }}</td>
           <td>{{ $row->debitAccount->name  ?? 'N/A' }}</td>
           <td>{{ $row->creditAccount->name ?? 'N/A' }}</td>
-          <td>{{ $row->remarks }}</td>
+          <td>
+            {{ $row->remarks }}
+            @foreach(array_values($row->attachments ?? []) as $n => $path)
+              <a href="{{ route('attachments.show', ['voucher', $row->id, $n]) }}" target="_blank" title="{{ basename($path) }}" class="ms-1"><i class="fas fa-paperclip"></i></a>
+            @endforeach
+          </td>
           <td><strong>{{ number_format($row->amount, 0, '.', ',') }}</strong></td>
           <td class="actions">
             <a class="text-success"

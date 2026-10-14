@@ -102,16 +102,13 @@ class FabricArticleController extends Controller
     /** AJAX for FG receiving: fabric / panna options for an article, with what the vendor still holds. */
     public function optionsForArticle(Request $request)
     {
-        $request->validate(['product_id' => 'required|integer', 'vendor_id' => 'nullable|integer']);
-        $vendorLoc = $request->vendor_id ? \App\Models\Location::forAccount((int) $request->vendor_id) : null;
+        $request->validate(['product_id' => 'required|integer', 'vendor_id' => 'nullable|integer', 'variation_id' => 'nullable|integer']);
 
-        $opts = FabricArticle::optionsFor((int) $request->product_id, $request->variation_id ? (int) $request->variation_id : null)
-            ->map(fn ($o) => [
-                'value'       => $o->fabric_id . ':' . ($o->fabric_variation_id ?? ''),
-                'label'       => $o->fabricLabel(),
-                'consumption' => $o->consumption,
-                'at_vendor'   => $vendorLoc ? \App\Services\Inventory::balance($vendorLoc->id, $o->fabric_id, $o->fabric_variation_id) : null,
-            ])->values();
+        $opts = \App\Services\PannaConsumption::optionsFor(
+            (int) $request->product_id,
+            $request->variation_id ? (int) $request->variation_id : null,
+            $request->vendor_id ? (int) $request->vendor_id : null
+        )->map(fn ($o) => ['value' => $o->value, 'label' => $o->label, 'consumption' => $o->consumption, 'at_vendor' => $o->at_vendor])->values();
 
         return response()->json($opts);
     }

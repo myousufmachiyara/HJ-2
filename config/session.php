@@ -32,7 +32,7 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    'lifetime' => (int) env('SESSION_LIFETIME', 480),   // minutes of inactivity (8h)
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 
@@ -127,9 +127,11 @@ return [
     |
     */
 
+    // Named after this installation's own address (e.g. hj_billtrix_com_session) so two
+    // installs / apps on the same domain can never overwrite each other's login cookie.
     'cookie' => env(
         'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel'), '_').'_session'
+        Str::slug(parse_url((string) env('APP_URL', ''), PHP_URL_HOST) ?: env('APP_NAME', 'laravel'), '_').'_session'
     ),
 
     /*

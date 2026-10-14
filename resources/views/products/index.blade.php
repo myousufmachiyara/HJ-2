@@ -106,7 +106,7 @@
                 <td>
                   <a href="{{ route('products.edit', $product->id) }}" class="text-primary"><i class="fa fa-edit"></i></a>
                   @if($product->item_type === 'raw')
-                    <a href="{{ route('products.fabric-articles', $product->id) }}" class="text-success" title="Articles made from this fabric & consumption"><i class="fas fa-sitemap"></i></a>
+                    <a href="{{ route('panna-consumption.index') }}" class="text-success" title="Fabric consumption per category & PANNA"><i class="fas fa-sitemap"></i></a>
                   @endif
                   <form method="POST" action="{{ route('products.destroy', $product->id) }}" style="display:inline-block">
                     @csrf

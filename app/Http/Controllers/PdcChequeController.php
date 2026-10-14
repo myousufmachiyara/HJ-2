@@ -65,6 +65,7 @@ class PdcChequeController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('issue_date'), 'issue_date');   // no back dates (except super admin)
         $data = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -124,6 +125,7 @@ class PdcChequeController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PdcCheque::find($id), 'issue_date', $request->input('issue_date'), 'issue_date');
         $cheque = PdcCheque::findOrFail($id);
         if ($cheque->status !== 'issued') {
             return back()->with('error', 'Only cheques in "Issued" status can be edited.');
@@ -157,6 +159,7 @@ class PdcChequeController extends Controller
     /** POST pdc_cheques/{id}/status  — move the cheque along its life cycle. */
     public function changeStatus(Request $request, $id)
     {
+        \App\Support\EntryDate::assertNew($request->input('date'), 'date');
         $cheque = PdcCheque::findOrFail($id);
         $request->validate([
             'status'  => ['required', Rule::in(PdcCheque::FLOW[$cheque->status] ?? [])],
@@ -185,6 +188,7 @@ class PdcChequeController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PdcCheque::find($id), 'issue_date');
         $cheque = PdcCheque::findOrFail($id);
         if ($cheque->status !== 'issued') {
             return back()->with('error', 'Only cheques still in "Issued" status can be deleted — cancel it instead.');

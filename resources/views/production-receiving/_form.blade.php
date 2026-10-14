@@ -38,6 +38,10 @@
           @endforeach
         </select>
       </div>
+      <div class="col-md-4">
+        {{-- CMT's delivery challan / photos --}}
+        @include('partials.attachments', ['existing' => $rec ? $rec->attachments->map(fn ($a) => ['id' => $a->id, 'name' => \App\Support\Attachments::name($a), 'url' => route('attachments.show', ['receiving', $a->id])]) : []])
+      </div>
     </div>
   </div>
 </section>
@@ -212,31 +216,41 @@
     });
   }
 
-  // PANNA this line consumed at the CMT — the vendor tells us; staff pick it from the
-  // options set up for this article on the fabric (Products → fabric → Articles).
+  // Fabric + PANNA this line consumed at the CMT — the vendor tells us. Options = fabrics in a
+  // PANNA that has consumption for this article's category (Products → PANNA Consumption);
+  // the ones this CMT holds are listed first.
   function loadFabric(row, keepChoice = true) {
     const pid = row.find('.product-select').val();
     const $cell = row.find('.fabric-cell');
     const $hidden = $cell.find('.fabric-choice');
     const current = keepChoice ? ($hidden.val() || $cell.data('choice') || '') : '';
-    $cell.find('.fabric-select').remove();
+    $cell.find('.fabric-select').each(function () { if ($(this).hasClass('select2-hidden-accessible')) $(this).select2('destroy'); }).remove();
     const $label = $cell.find('.fabric-label');
     if (!pid) { $hidden.val(''); $label.text('—'); return; }
     $.get('{{ route('fabric.options') }}', { product_id: pid, variation_id: row.find('.variation-select').val() || '', vendor_id: $('select[name="vendor_id"]').val() || '' }, function (opts) {
       if (!opts.length) {
         $hidden.val('');
-        $label.html('<span class="text-muted">no fabric set up</span>').attr('title', 'Link this article to its fabric under Products → fabric → Articles');
+        $label.html('<span class="text-muted">no PANNA consumption for this category</span>').attr('title', 'Set it on Products → PANNA Consumption');
         return;
       }
       $label.text('');
       const fmt = o => o.label + ' · ' + o.consumption + '/pc' + (o.at_vendor !== null ? ' · at CMT ' + parseFloat(o.at_vendor).toFixed(2) : '');
       const $sel = $('<select class="form-control form-control-sm fabric-select" required></select>');
-      $sel.append($('<option value="">Select PANNA used</option>'));
-      opts.forEach(o => $sel.append($('<option>').val(o.value).text(fmt(o))));
-      const chosen = opts.some(o => o.value === current) ? current : (opts.length === 1 ? opts[0].value : '');
+      $sel.append($('<option value="">Select fabric &amp; PANNA used</option>'));
+      const atCmt = opts.filter(o => o.at_vendor !== null && parseFloat(o.at_vendor) > 0);
+      const others = opts.filter(o => !(o.at_vendor !== null && parseFloat(o.at_vendor) > 0));
+      const add = (list, label) => {
+        if (!list.length) return;
+        const $g = label ? $('<optgroup>').attr('label', label) : $sel;
+        list.forEach(o => $g.append($('<option>').val(o.value).text(fmt(o))));
+        if (label) $sel.append($g);
+      };
+      if (atCmt.length && others.length) { add(atCmt, 'At this CMT'); add(others, 'Other fabrics'); } else { add(opts, null); }
+      const chosen = opts.some(o => o.value === current) ? current : (atCmt.length === 1 ? atCmt[0].value : (opts.length === 1 ? opts[0].value : ''));
       $sel.val(chosen);
       $hidden.val(chosen);
       $cell.append($sel);
+      $sel.select2({ width: '100%', dropdownAutoWidth: true });
     });
   }
 

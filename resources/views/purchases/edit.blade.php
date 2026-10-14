@@ -60,8 +60,7 @@
             </div>
 
             <div class="col-md-3 mb-3">
-              <label>Attachments</label>
-              <input type="file" name="attachments[]" class="form-control" multiple accept=".pdf,.jpg,.jpeg,.png,.zip">
+              @include('partials.attachments', ['existing' => $invoice->attachments->map(fn ($a) => ['id' => $a->id, 'name' => \App\Support\Attachments::name($a), 'url' => route('attachments.show', ['purchase', $a->id])])])
             </div>
 
             <div class="col-md-4 mb-3">

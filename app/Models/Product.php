@@ -110,7 +110,10 @@ class Product extends Model
     {
         $values = AttributeValue::whereIn('id', $attributeValueIds)
             ->orderBy('attribute_id')->pluck('value')
-            ->map(fn ($v) => strtoupper(preg_replace('/[^A-Za-z0-9]+/', '', $v)))
+            // keep the value readable: "2-3Y" stays 2-3Y (was 23Y), "3/4" → 3-4,
+            // "Free Size" → FREE-SIZE; quotes and other symbols (44") are dropped
+            ->map(fn ($v) => trim(preg_replace('/-+/', '-', preg_replace('/[^A-Z0-9-]/', '',
+                strtoupper(preg_replace('#[\s/\\\\]+#', '-', trim((string) $v))))), '-'))
             ->filter()->implode('-');
 
         return $values !== '' ? $productSku . '-' . $values : $productSku;

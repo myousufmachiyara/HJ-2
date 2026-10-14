@@ -39,6 +39,7 @@ class PurchaseInvoiceController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('invoice_date'), 'invoice_date');   // no back dates (except super admin)
         $request->validate([
             'invoice_date'         => 'required|date',
             'vendor_id'            => 'required|exists:chart_of_accounts,id',
@@ -47,7 +48,7 @@ class PurchaseInvoiceController extends Controller
             'bill_no'              => 'nullable|string|max:100',
             'ref_no'               => 'nullable|string|max:100',
             'remarks'              => 'nullable|string',
-            'attachments.*'        => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'attachments.*'        => \App\Support\Attachments::RULE,
             'items.*.item_id'      => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.quantity'     => 'required|numeric|min:0.01',
@@ -115,6 +116,7 @@ class PurchaseInvoiceController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PurchaseInvoice::find($id), 'invoice_date', $request->input('invoice_date'), 'invoice_date');
         $request->validate([
             'invoice_date'         => 'required|date',
             'vendor_id'            => 'required|exists:chart_of_accounts,id',
@@ -123,7 +125,7 @@ class PurchaseInvoiceController extends Controller
             'bill_no'              => 'nullable|string|max:100',
             'ref_no'               => 'nullable|string|max:100',
             'remarks'              => 'nullable|string',
-            'attachments.*'        => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'attachments.*'        => \App\Support\Attachments::RULE,
             'items.*.item_id'      => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.quantity'     => 'required|numeric|min:0.01',
@@ -181,6 +183,7 @@ class PurchaseInvoiceController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PurchaseInvoice::find($id), 'invoice_date');
         DB::beginTransaction();
         try {
             $invoice = PurchaseInvoice::with('attachments')->findOrFail($id);
@@ -417,14 +420,8 @@ class PurchaseInvoiceController extends Controller
 
     private function saveAttachments(PurchaseInvoice $invoice, Request $request): void
     {
-        if (!$request->hasFile('attachments')) return;
-        foreach ($request->file('attachments') as $file) {
-            $invoice->attachments()->create([
-                'file_path'     => $file->store('purchase_invoices', 'public'),
-                'original_name' => $file->getClientOriginalName(),
-                'file_type'     => $file->getClientMimeType(),
-            ]);
-        }
+        \App\Support\Attachments::removeFrom($invoice->attachments(), $request);   // ticked "remove" on edit
+        \App\Support\Attachments::saveTo($invoice->attachments(), $request, 'purchase_invoices');
     }
 
     /**

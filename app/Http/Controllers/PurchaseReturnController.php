@@ -35,13 +35,14 @@ class PurchaseReturnController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('return_date'), 'return_date');   // no back dates (except super admin)
         $request->validate([
             'return_date'          => 'required|date',
             'vendor_id'            => 'required|exists:chart_of_accounts,id',
             'bill_no'              => 'nullable|string|max:100',
             'ref_no'               => 'nullable|string|max:100',
             'remarks'              => 'nullable|string',
-            'attachments.*'        => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'attachments.*'        => \App\Support\Attachments::RULE,
             'items.*.item_id'      => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.invoice_id'   => 'nullable|exists:purchase_invoices,id',
@@ -98,13 +99,14 @@ class PurchaseReturnController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PurchaseReturn::find($id), 'return_date', $request->input('return_date'), 'return_date');
         $request->validate([
             'return_date'          => 'required|date',
             'vendor_id'            => 'required|exists:chart_of_accounts,id',
             'bill_no'              => 'nullable|string|max:100',
             'ref_no'               => 'nullable|string|max:100',
             'remarks'              => 'nullable|string',
-            'attachments.*'        => 'nullable|file|mimes:jpg,jpeg,png,pdf,zip|max:2048',
+            'attachments.*'        => \App\Support\Attachments::RULE,
             'items.*.item_id'      => 'required|exists:products,id',
             'items.*.variation_id' => 'nullable|exists:product_variations,id',
             'items.*.invoice_id'   => 'nullable|exists:purchase_invoices,id',
@@ -150,6 +152,7 @@ class PurchaseReturnController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\PurchaseReturn::find($id), 'return_date');
         DB::beginTransaction();
         try {
             $return = PurchaseReturn::with('attachments')->findOrFail($id);
@@ -293,14 +296,8 @@ class PurchaseReturnController extends Controller
 
     private function saveAttachments(PurchaseReturn $return, Request $request): void
     {
-        if (!$request->hasFile('attachments')) return;
-        foreach ($request->file('attachments') as $file) {
-            $return->attachments()->create([
-                'file_path'     => $file->store('purchase_returns', 'public'),
-                'original_name' => $file->getClientOriginalName(),
-                'file_type'     => $file->getClientMimeType(),
-            ]);
-        }
+        \App\Support\Attachments::removeFrom($return->attachments(), $request);   // ticked "remove" on edit
+        \App\Support\Attachments::saveTo($return->attachments(), $request, 'purchase_returns');
     }
 
     /**

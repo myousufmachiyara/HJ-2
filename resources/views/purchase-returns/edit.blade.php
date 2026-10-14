@@ -51,9 +51,7 @@
               <input type="text" name="ref_no" class="form-control" value="{{ $return->ref_no }}">
             </div>
             <div class="col-md-3 mb-3">
-              <label>New Attachments</label>
-              <input type="file" name="attachments[]" class="form-control" multiple
-                     accept=".pdf,.jpg,.jpeg,.png,.zip">
+              @include('partials.attachments', ['existing' => $return->attachments->map(fn ($a) => ['id' => $a->id, 'name' => \App\Support\Attachments::name($a), 'url' => route('attachments.show', ['purchase-return', $a->id])])])
             </div>
             <div class="col-md-4 mb-3">
               <label>Remarks</label>

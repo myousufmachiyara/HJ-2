@@ -10,6 +10,8 @@ class PurchaseInvoiceAttachment extends Model
         'purchase_invoice_id',
         'file_path',
         'file_name',
+        'original_name',
+        'file_type',
     ];
 
     public function invoice()

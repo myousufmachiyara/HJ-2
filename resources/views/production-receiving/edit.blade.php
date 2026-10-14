@@ -4,7 +4,7 @@
 @section('content')
 <div class="row">
   <div class="col-12">
-    <form action="{{ route('production_receiving.update', $receiving->id) }}" method="POST">
+    <form action="{{ route('production_receiving.update', $receiving->id) }}" method="POST" enctype="multipart/form-data">
       @csrf
       @method('PUT')
       @include('production-receiving._form')

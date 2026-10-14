@@ -28,11 +28,17 @@ class VoucherController extends Controller
     public function show($type, $id)
     {
         $voucher = Voucher::with(['debitAccount', 'creditAccount'])->findOrFail($id);
-        return response()->json($voucher);
+        $data = $voucher->toArray();
+        // saved files with working links (used by the edit popup)
+        $data['attachment_links'] = collect($voucher->attachments ?? [])->values()->map(fn ($path, $n) => [
+            'id' => $n, 'name' => basename($path), 'url' => route('attachments.show', ['voucher', $voucher->id, $n]),
+        ])->all();
+        return response()->json($data);
     }
 
     public function store(Request $request, $type)
     {
+        \App\Support\EntryDate::assertNew($request->input('date'), 'date');   // no back dates (except super admin)
         // Block creating system vouchers manually
         if (!in_array($type, self::MANUAL_TYPES)) {
             return back()->with('error', "Cannot manually create a '{$type}' voucher.");
@@ -45,7 +51,7 @@ class VoucherController extends Controller
                 'ac_cr_sid' => 'required|numeric|different:ac_dr_sid',
                 'amount'    => 'required|numeric|min:1',
                 'remarks'   => 'nullable|string',
-                'att.*'     => 'nullable|file|max:2048',
+                'att.*'     => \App\Support\Attachments::RULE,
             ]);
 
             $attachments = [];
@@ -78,6 +84,7 @@ class VoucherController extends Controller
 
     public function update(Request $request, $type, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\Voucher::find($id), 'date', $request->input('date'), 'date');
         // Block editing system vouchers
         if (!in_array($type, self::MANUAL_TYPES)) {
             return back()->with('error', "Cannot manually edit a '{$type}' voucher.");
@@ -90,11 +97,18 @@ class VoucherController extends Controller
                 'ac_cr_sid' => 'required|numeric|different:ac_dr_sid',
                 'amount'    => 'required|numeric|min:1',
                 'remarks'   => 'nullable|string',
-                'att.*'     => 'nullable|file|max:2048',
+                'att.*'     => \App\Support\Attachments::RULE,
             ]);
 
             $voucher     = Voucher::findOrFail($id);
-            $attachments = $voucher->attachments ?? [];
+            $attachments = array_values($voucher->attachments ?? []);
+
+            // files ticked "remove" in the edit popup
+            $remove = array_map('intval', (array) $request->input('remove_attachments', []));
+            foreach ($remove as $n) {
+                if (isset($attachments[$n])) \Illuminate\Support\Facades\Storage::disk('public')->delete($attachments[$n]);
+            }
+            $attachments = array_values(array_diff_key($attachments, array_flip($remove)));
 
             if ($request->hasFile('att')) {
                 foreach ($request->file('att') as $file) {
@@ -124,6 +138,7 @@ class VoucherController extends Controller
 
     public function destroy($type, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\Voucher::find($id), 'date');
         // Block deleting system vouchers
         if (!in_array($type, self::MANUAL_TYPES)) {
             return back()->with('error', "Cannot manually delete a '{$type}' voucher.");

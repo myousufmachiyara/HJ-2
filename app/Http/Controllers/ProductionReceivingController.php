@@ -33,7 +33,7 @@ class ProductionReceivingController extends Controller
 
     public function index()
     {
-        $receivings = ProductionReceiving::with(['vendor', 'details'])
+        $receivings = ProductionReceiving::with(['vendor', 'details', 'attachments'])
             ->orderBy('id', 'desc')->get()
             ->map(function ($r) {
                 $r->total_amount = $r->details->sum(fn ($d) => $d->manufacturing_cost * $d->received_qty);
@@ -50,6 +50,7 @@ class ProductionReceivingController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('rec_date'), 'rec_date');   // no back dates (except super admin)
         $validated = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -66,6 +67,7 @@ class ProductionReceivingController extends Controller
 
             $missingCost = $this->saveDetails($receiving, $validated['item_details']);
             $this->post($receiving->fresh('details'));
+            \App\Support\Attachments::saveTo($receiving->attachments(), $request, 'production_receivings');
 
             DB::commit();
             Log::info('[FGReceiving] Created', ['id' => $receiving->id]);
@@ -81,12 +83,13 @@ class ProductionReceivingController extends Controller
 
     public function edit($id)
     {
-        $receiving = ProductionReceiving::with(['details.product', 'details.variation'])->findOrFail($id);
+        $receiving = ProductionReceiving::with(['details.product', 'details.variation', 'attachments'])->findOrFail($id);
         return view('production-receiving.edit', $this->formData() + compact('receiving'));
     }
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\ProductionReceiving::find($id), 'rec_date', $request->input('rec_date'), 'rec_date');
         $validated = $this->validateRequest($request);
 
         DB::beginTransaction();
@@ -102,6 +105,8 @@ class ProductionReceivingController extends Controller
             $receiving->details()->delete();
             $missingCost = $this->saveDetails($receiving, $validated['item_details']);
             $this->post($receiving->fresh('details'));
+            \App\Support\Attachments::removeFrom($receiving->attachments(), $request);
+            \App\Support\Attachments::saveTo($receiving->attachments(), $request, 'production_receivings');
 
             DB::commit();
             Log::info('[FGReceiving] Updated', ['id' => $id]);
@@ -117,6 +122,7 @@ class ProductionReceivingController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\ProductionReceiving::find($id), 'rec_date');
         DB::beginTransaction();
         try {
             $receiving = ProductionReceiving::findOrFail($id);
@@ -210,7 +216,7 @@ class ProductionReceivingController extends Controller
     private function formData(): array
     {
         return [
-            'products' => Product::orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
+            'products' => Product::where('item_type', 'fg')->orderBy('name')->get(['id', 'name', 'barcode', 'sku']),
             'accounts' => ChartOfAccounts::where('account_type', 'vendor')->orderBy('name')->get(['id', 'name']),
         ];
     }
@@ -225,17 +231,18 @@ class ProductionReceivingController extends Controller
             'item_details.*.variation_id' => 'nullable|exists:product_variations,id',
             'item_details.*.received_qty' => 'required|numeric|min:0.01',
             'item_details.*.fabric_choice' => 'nullable|string|max:50',
+            'attachments.*'                => \App\Support\Attachments::RULE,
         ]);
 
-        // The CMT vendor tells us which fabric PANNA was used — required for every
-        // article that has fabric set up, and it must be one of that article's options.
+        // The CMT vendor tells us which fabric + PANNA was used — required for every
+        // article whose category has PANNA consumption set up (Products → PANNA Consumption).
         $errors = [];
         foreach ($data['item_details'] as $i => $line) {
-            $options = \App\Models\FabricArticle::optionsFor((int) $line['product_id'], !empty($line['variation_id']) ? (int) $line['variation_id'] : null);
+            $options = \App\Services\PannaConsumption::optionsFor((int) $line['product_id'], !empty($line['variation_id']) ? (int) $line['variation_id'] : null);
             if ($options->isEmpty()) continue;
 
             $choice = (string) ($line['fabric_choice'] ?? '');
-            $valid  = $options->contains(fn ($o) => $o->fabric_id . ':' . ($o->fabric_variation_id ?? '') === $choice);
+            $valid  = $options->contains(fn ($o) => $o->value === $choice);
             if (!$valid) {
                 $name = Product::whereKey($line['product_id'])->value('name');
                 $errors["item_details.$i.fabric_choice"] = 'Line ' . ($i + 1) . ': select the PANNA the CMT used for ' . $name . '.';
@@ -303,17 +310,14 @@ class ProductionReceivingController extends Controller
     /** @return array{0:?int,1:?int,2:float} fabric id, panna (variation) id, consumption per piece */
     private function resolveFabric(Product $product, ?int $vid, ?string $choice, ?Location $vendorLoc, ProductionReceiving $receiving): array
     {
-        $options = \App\Models\FabricArticle::optionsFor($product->id, $vid);
+        // consumption by the article's CATEGORY + the PANNA the CMT used (+ size if set)
+        $options = \App\Services\PannaConsumption::optionsFor($product->id, $vid);
 
         if ($options->isNotEmpty()) {
-            $picked = null;
-            if ($choice) {
-                [$f, $fv] = array_pad(explode(':', $choice, 2), 2, '');
-                $picked = $options->first(fn ($o) => (string) $o->fabric_id === $f && (string) ($o->fabric_variation_id ?? '') === $fv);
-            }
+            $picked = $choice ? $options->first(fn ($o) => $o->value === $choice) : null;
             // validateRequest() guarantees a valid choice; first option only as a safety net
             $picked ??= $options->first();
-            return [(int) $picked->fabric_id, $picked->fabric_variation_id ? (int) $picked->fabric_variation_id : null, (float) $picked->consumption];
+            return [$picked->fabric_id, $picked->fabric_variation_id, (float) $picked->consumption];
         }
 
         // legacy: fabric + consumption stored on the product itself

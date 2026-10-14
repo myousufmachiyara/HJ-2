@@ -203,6 +203,41 @@
         </section>
         <footer>
             @include('layouts.footer')
+            <script>
+              // Keep the login alive while the software is open, and refresh the form
+              // token so a long-open form still saves ("Page Expired" protection).
+              (function () {
+                function ping() {
+                  fetch('{{ route('keep-alive') }}', { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                    .then(function (r) { if (r.status === 401 || r.redirected) { location.href = '{{ route('login') }}'; return null; } return r.ok ? r.json() : null; })
+                    .then(function (d) {
+                      if (!d || !d.token) return;
+                      document.querySelectorAll('meta[name="csrf-token"]').forEach(function (m) { m.setAttribute('content', d.token); });
+                      document.querySelectorAll('input[name="_token"]').forEach(function (i) { i.value = d.token; });
+                      if (window.jQuery && jQuery.ajaxSetup) jQuery.ajaxSetup({ headers: { 'X-CSRF-TOKEN': d.token } });
+                    }).catch(function () {});
+                }
+                setInterval(ping, 10 * 60 * 1000);
+
+                @unless(\App\Support\EntryDate::isSuperAdmin())
+                // No back-dated entries: entry-date boxes only offer today (super admin is free)
+                (function lockDates() {
+                  var today = '{{ \App\Support\EntryDate::today() }}';
+                  var names = ['date', 'invoice_date', 'return_date', 'rec_date', 'issue_date', 'payment_date'];
+                  function apply() {
+                    document.querySelectorAll('form input[type="date"]').forEach(function (i) {
+                      if (names.indexOf(i.name) === -1 || i.closest('.no-date-lock') || i.form && i.form.method.toLowerCase() === 'get') return;
+                      i.min = today; i.max = today;
+                      if (!i.value && !i.readOnly) i.value = today;
+                    });
+                  }
+                  document.addEventListener('DOMContentLoaded', apply);
+                  apply();
+                })();
+                @endunless
+                document.addEventListener('visibilitychange', function () { if (!document.hidden) ping(); });
+              })();
+            </script>
             <div class="text-end">  
                 <div>
                 Powered By

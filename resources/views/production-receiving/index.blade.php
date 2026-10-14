@@ -40,7 +40,12 @@
                 <td>{{ $loop->iteration }}</td>
                 <td>{{ $rec->grn_no }}</td>
                 <td>{{ \Carbon\Carbon::parse($rec->rec_date)->format('d-m-Y') }}</td>
-                <td>{{ $rec->vendor->name ?? '-' }}</td>
+                <td>
+                  {{ $rec->vendor->name ?? '-' }}
+                  @foreach($rec->attachments as $att)
+                    <a href="{{ route('attachments.show', ['receiving', $att->id]) }}" target="_blank" title="{{ \App\Support\Attachments::name($att) }}" class="ms-1"><i class="fas fa-paperclip"></i></a>
+                  @endforeach
+                </td>
                 <td>{{ $rec->details->sum('received_qty') }}</td>
                 @can('reports.accounts')<td>{{ number_format($rec->total_amount, 2) }}</td>@endcan
                 <td>

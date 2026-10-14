@@ -123,7 +123,7 @@ class PushProductsToShopify implements ShouldQueue
         $data = $this->store->graphql(<<<'GQL'
             mutation PushProduct($input: ProductSetInput!) {
               productSet(synchronous: true, input: $input) {
-                product { id }
+                product { id variants(first: 250) { nodes { id sku } } }
                 userErrors { field message }
               }
             }
@@ -142,6 +142,13 @@ class PushProductsToShopify implements ShouldQueue
         }
 
         $this->link($product, $gid);
+
+        // remember Shopify's id of each size (matched by SKU) for later imports
+        foreach ($data['productSet']['product']['variants']['nodes'] ?? [] as $node) {
+            if (empty($node['sku']) || empty($node['id'])) continue;
+            \App\Models\ProductVariation::where('product_id', $product->id)->where('sku', $node['sku'])
+                ->update(['shopify_variant_id' => Str::afterLast($node['id'], '/')]);
+        }
         return 'created';
     }
 

@@ -47,6 +47,7 @@ class SaleReturnController extends Controller
 
     public function store(Request $request)
     {
+        \App\Support\EntryDate::assertNew($request->input('return_date'), 'return_date');   // no back dates (except super admin)
         $validated = $request->validate([
             'customer_id'          => 'required|exists:chart_of_accounts,id',
             'location_id'          => 'required|exists:locations,id',
@@ -164,6 +165,7 @@ class SaleReturnController extends Controller
 
     public function update(Request $request, $id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\SaleReturn::find($id), 'return_date', $request->input('return_date'), 'return_date');
         // Log the incoming request
         Log::info('[SaleReturn] Update Request', [
             'sale_return_id' => $id,
@@ -258,6 +260,7 @@ class SaleReturnController extends Controller
 
     public function destroy($id)
     {
+        \App\Support\EntryDate::assertEditable(\App\Models\SaleReturn::find($id), 'return_date');
         DB::beginTransaction();
         try {
             $return = SaleReturn::findOrFail($id);
