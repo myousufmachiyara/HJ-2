@@ -687,7 +687,7 @@ class ProductController extends Controller
         try {
             $variation = ProductVariation::with('product')->where('barcode', $barcode)->first()
                 ?? ProductVariation::with('product')->where('sku', $barcode)->first()
-                ?? app(\App\Services\ProductLookupService::class)->loose(ProductVariation::with('product'), (string) $barcode);
+                ?? app(\App\Services\ItemCodeLookup::class)->loose(ProductVariation::with('product'), (string) $barcode);
 
             if ($variation && $variation->product) {
                 return response()->json([

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\ProductLookupService;
+use App\Services\ItemCodeLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -30,7 +30,7 @@ class ItemsImportController extends Controller
         'discount_amount' => ['discount rs', 'disc rs', 'discount amount', 'disc amount', 'discount rs/pc', 'disc rs/pc'],
     ];
 
-    public function __construct(protected ProductLookupService $lookup)
+    public function __construct(protected ItemCodeLookup $lookup)
     {
     }
 
