@@ -313,7 +313,18 @@
         if (!res.success) { alert(res.message || 'Import failed'); return; }
         addLines(res.items);
         const skipped = res.errors || [];
-        alert('Imported ' + res.items.length + ' line(s).' + (skipped.length ? '\n\nSkipped ' + skipped.length + ':\n' + skipped.slice(0, 30).join('\n') + (skipped.length > 30 ? '\n… and ' + (skipped.length - 30) + ' more' : '') : ''));
+        if (skipped.length) {
+          // complete list in the browser console (F12 → Console)
+          const rows = skipped.map(function (e) {
+            const m = e.match(/^Row (\d+):\s*(.*)$/) || [null, '', e];
+            const code = (m[2].match(/'([^']+)'/) || [null, ''])[1];
+            return { Row: m[1], SKU: code, Reason: m[2] };
+          });
+          console.log('Skipped ' + skipped.length + ' line(s) from ' + file.name + ':\n' + skipped.join('\n'));
+          console.log('Skipped SKUs only:\n' + rows.map(r => r.SKU).filter(Boolean).join('\n'));
+          console.table(rows);
+        }
+        alert('Imported ' + res.items.length + ' line(s).' + (skipped.length ? '\n\nSkipped ' + skipped.length + ' (full list: press F12 → Console):\n' + skipped.slice(0, 30).join('\n') + (skipped.length > 30 ? '\n… and ' + (skipped.length - 30) + ' more' : '') : ''));
       },
       error: xhr => alert('Import failed: ' + (xhr.responseJSON?.message || xhr.statusText)),
       complete: () => { event.target.value = ''; } });
