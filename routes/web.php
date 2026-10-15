@@ -88,6 +88,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/production-gatepass/{id}', [ProductionController::class, 'printGatepass'])->name('production.gatepass');
     
     Route::get('/stock/available', [StockTransferController::class, 'available'])->name('stock.available');
+    Route::post('/stock/available-bulk', [StockTransferController::class, 'availableBulk'])->name('stock.available.bulk');
     Route::post('/locations/{id}/set-default', [LocationController::class, 'setDefault'])->name('locations.set-default');
 
     // ── Sale Invoice payment helpers ──────────────────────────────────

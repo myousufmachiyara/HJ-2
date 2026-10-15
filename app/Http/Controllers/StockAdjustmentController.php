@@ -183,6 +183,13 @@ class StockAdjustmentController extends Controller
 
     private function validateRequest(Request $request): array
     {
+        // Big sheets (hundreds of lines) are posted as one JSON field, because the
+        // server only accepts ~1000 form fields (PHP max_input_vars) and drops the rest.
+        if ($request->filled('items_json')) {
+            $items = json_decode((string) $request->input('items_json'), true);
+            $request->merge(['items' => is_array($items) ? array_values($items) : []]);
+        }
+
         return $request->validate([
             'date'                 => 'required|date',
             'location_id'          => 'required|exists:locations,id',

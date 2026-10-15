@@ -134,6 +134,22 @@ class StockTransferController extends Controller
         ]);
     }
 
+    /** Stock at one location for many items in one call: keys "productId-variationId" → qty. */
+    public function availableBulk(Request $request)
+    {
+        $request->validate(['location_id' => 'required|integer', 'keys' => 'nullable|array']);
+        $keys = collect($request->input('keys', []))->map(fn ($k) => (string) $k)->unique();
+        $pids = $keys->map(fn ($k) => (int) explode('-', $k)[0])->filter()->unique()->values();
+
+        $rows = \App\Models\StockLedger::where('location_id', (int) $request->location_id)
+            ->whereIn('product_id', $pids)
+            ->groupBy('product_id', 'variation_id')
+            ->selectRaw('product_id, variation_id, SUM(qty) AS qty')->get()
+            ->mapWithKeys(fn ($r) => [$r->product_id . '-' . ($r->variation_id ?? '') => round((float) $r->qty, 3)]);
+
+        return response()->json($keys->mapWithKeys(fn ($k) => [$k => $rows[$k] ?? 0]));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────
 
     private function formData(): array
