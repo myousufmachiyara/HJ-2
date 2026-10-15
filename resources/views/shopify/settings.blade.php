@@ -20,6 +20,9 @@
                 @if(session('success'))
                     <div class="alert alert-success">{{ session('success') }}</div>
                 @endif
+                @if(session('sku_report'))
+                    <details class="alert alert-light border" open><summary class="fw-bold">SKU report</summary><pre class="mb-0 small" style="white-space:pre-wrap">{{ session('sku_report') }}</pre></details>
+                @endif
                 @if(session('error'))
                     <div class="alert alert-danger">{{ session('error') }}</div>
                 @endif
@@ -217,6 +220,13 @@
                                         @csrf
                                         <button type="submit" class="btn btn-sm btn-outline-secondary" title="Get a fresh token and show the permissions Shopify has granted">
                                             Check Access
+                                        </button>
+                                    </form>
+                                    <form action="{{ route('shopify.store.fix-skus', $store->id) }}" method="POST"
+                                          onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerText='Fixing… please wait';">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Make the software's size SKUs / barcodes the same as on Shopify">
+                                            Fix SKUs
                                         </button>
                                     </form>
                                     <form action="{{ route('shopify.store.reauthorize', $store->id) }}" method="POST">

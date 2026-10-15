@@ -322,6 +322,16 @@ class ShopifyStoreController extends Controller
             : back()->with('error', "{$store->shop_name}: granted only {$list}. write_products is missing — click Re-authorize and approve the new permissions on Shopify.");
     }
 
+    /** Make the software's size SKUs the same as Shopify's (runs now, no queue) and show the report. */
+    public function fixSkus($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        @set_time_limit(0);
+        \Illuminate\Support\Facades\Artisan::call('hj:shopify-fix-skus', ['store' => $store->id]);
+        $out = trim(preg_replace('/^\s*fetched \d+ products…\s*$/m', '', \Illuminate\Support\Facades\Artisan::output()));
+        return back()->with('success', "{$store->shop_name}: SKUs checked.")->with('sku_report', $out);
+    }
+
     /** Send the admin to Shopify's approval page again so new scopes (write_products) are approved. */
     public function reauthorize($id)
     {

@@ -269,6 +269,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('store/{id}/reauthorize', [ShopifyStoreController::class, 'reauthorize'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.reauthorize');
+        Route::post('store/{id}/fix-skus', [ShopifyStoreController::class, 'fixSkus'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.fix-skus');
     });
 
     // ── Bulk Excel import (items only) ─────────────────────────────────
