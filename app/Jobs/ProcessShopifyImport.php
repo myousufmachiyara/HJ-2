@@ -189,6 +189,15 @@ class ProcessShopifyImport implements ShouldQueue
         $existing = Product::where('shopify_store_id', $this->store->id)
             ->where('shopify_product_id', (string) $shp['id'])->first();
 
+        // Same Shopify product imported under an earlier connection of this shop
+        // (store disconnected and connected again) → take it over instead of duplicating.
+        if (!$existing) {
+            $existing = Product::where('shopify_product_id', (string) $shp['id'])
+                ->where(fn ($q) => $q->whereNull('shopify_store_id')->orWhereNotIn('shopify_store_id', \App\Models\ShopifyStore::pluck('id')))
+                ->first();
+            $existing?->update(['shopify_store_id' => $this->store->id]);
+        }
+
         $values = [
                 'name'              => $shp['title'],
                 // FIX: product SKU is now always store-scoped and never
@@ -291,6 +300,12 @@ class ProcessShopifyImport implements ShouldQueue
             ['SHP-' . $this->store->id . '-V-' . $v['id'], null],
         ];
 
+        // A deleted size (or a size of a deleted product) still holding this SKU /
+        // barcode would block it — free the code first, so the real Shopify SKU is kept
+        // instead of falling back to SHP-…-V-….
+        $this->releaseCode('sku', $sku, $productId);
+        if ($barcode) $this->releaseCode('barcode', $barcode, $productId);
+
         $pv = null;
         foreach ($attempts as $i => [$trySku, $tryBarcode]) {
             try {
@@ -322,6 +337,24 @@ class ProcessShopifyImport implements ShouldQueue
         }
         if ($valueIds) {
             $pv->attributeValues()->sync($valueIds);
+        }
+    }
+
+    /**
+     * If $code is held by a size that is deleted (or whose product is deleted), rename
+     * that dead row so the code is free again. Live sizes are never touched.
+     */
+    private function releaseCode(string $column, string $code, int $productId): void
+    {
+        $holders = ProductVariation::withTrashed()->with(['product' => fn ($q) => $q->withTrashed()])
+            ->where($column, $code)->where('product_id', '!=', $productId)->get();
+
+        foreach ($holders as $h) {
+            $dead = $h->trashed() || !$h->product || $h->product->trashed();
+            if (!$dead) continue;
+            $h->{$column} = $column === 'barcode' ? null : $code . '-DEL' . $h->id;
+            $h->saveQuietly();
+            Log::info("  Freed {$column} '{$code}' from deleted size #{$h->id}.");
         }
     }
 
@@ -444,7 +477,7 @@ class ProcessShopifyImport implements ShouldQueue
         $raw = trim($v['barcode'] ?? '');
 
         if ($raw === '') {
-            return 'SHP-' . $this->store->id . '-B-' . $v['id'];
+            return $this->resolveVariantSku($v);   // no barcode on Shopify → same as SKU (as in the software)
         }
 
         // Only expand genuine scientific notation (e.g. "6.94E+11" from an
