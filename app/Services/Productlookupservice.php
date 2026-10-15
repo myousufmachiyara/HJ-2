@@ -21,7 +21,8 @@ class ProductLookupService
         }
 
         $variation = ProductVariation::with('product')->where('barcode', $code)->first()
-            ?? ProductVariation::with('product')->where('sku', $code)->first();
+            ?? ProductVariation::with('product')->where('sku', $code)->first()
+            ?? $this->loose(ProductVariation::with('product'), $code);
 
         if ($variation && $variation->product) {
             $p = $variation->product;
@@ -44,7 +45,8 @@ class ProductLookupService
         }
 
         $product = Product::where('barcode', $code)->first()
-            ?? Product::where('sku', $code)->first();
+            ?? Product::where('sku', $code)->first()
+            ?? $this->loose(Product::query(), $code);
 
         if ($product) {
             return [
@@ -63,5 +65,24 @@ class ProductLookupService
         }
 
         return ['success' => false, 'message' => "No product found for code '{$code}'"];
+    }
+
+    /**
+     * Same code written slightly differently: ignores hyphens, spaces, slashes and
+     * upper/lower case, so "HAS-WOW-5-10-11Y" finds the variation saved as
+     * "HAS-WOW-5-1011Y" (sizes like 10-11Y lost their hyphen in older SKUs) and the
+     * other way round. Used only when there is no exact match, and only when the
+     * match is unique.
+     */
+    public function loose($query, string $code)
+    {
+        $key = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $code));
+        if ($key === '') return null;
+
+        $norm = fn (string $col) => "UPPER(REPLACE(REPLACE(REPLACE(REPLACE({$col}, '-', ''), ' ', ''), '/', ''), '_', ''))";
+        $hits = $query->where(fn ($q) => $q->whereRaw($norm('sku') . ' = ?', [$key])->orWhereRaw($norm('barcode') . ' = ?', [$key]))
+            ->limit(2)->get();
+
+        return $hits->count() === 1 ? $hits->first() : null;
     }
 }
