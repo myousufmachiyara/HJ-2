@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Imports\RawRowsImport;
 use App\Services\ProductLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,15 +74,22 @@ class ItemsImportController extends Controller
             'file' => 'required|file|mimes:xlsx,xls,csv,txt',
         ]);
 
-        $import = new RawRowsImport();
-        Excel::import($import, $request->file('file'));
-        $rows = $import->getRows();
+        // Read the first sheet directly (row 1 = header). Done here instead of through an
+        // import class so an old copy of app/Imports/Rawrowsimport.php on the server
+        // can never be picked up by mistake.
+        $sheet  = Excel::toArray(new class implements \Maatwebsite\Excel\Concerns\ToArray {
+            public function array(array $array) {}
+        }, $request->file('file'))[0] ?? [];
+        $header = array_map(fn ($h) => trim((string) $h), $sheet[0] ?? []);
+        $rows   = collect(array_slice($sheet, 1))
+            ->filter(fn ($r) => collect($r)->contains(fn ($v) => $v !== null && trim((string) $v) !== ''))
+            ->map(fn ($r) => collect($r));   // keys kept → error messages show the real Excel row
 
         if ($rows->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'No item rows found in the uploaded file.'], 422);
         }
 
-        $index = $this->mapColumns($import->getHeader(), $columns);
+        $index = $this->mapColumns($header, $columns);
 
         $items  = [];
         $errors = [];
