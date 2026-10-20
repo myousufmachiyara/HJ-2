@@ -136,7 +136,8 @@
             <div class="mb-3">
               <label for="file_import" class="form-label">Choose edited export file</label>
               <input type="file" name="file" id="file_import" class="form-control" accept=".csv,.xlsx" required>
-              <small class="text-danger">Upload exported file after editing. Allowed: CSV, XLSX</small>
+              <small class="text-danger">Upload exported file after editing. Allowed: CSV, XLSX</small><br>
+              <small class="text-muted">Category: use the <b>Category Code</b> column ({{ $categories->pluck('code')->filter()->implode(', ') }}). An unknown code stops the import and lists the rows.</small>
             </div>
 
             <div class="mt-2 mb-2">

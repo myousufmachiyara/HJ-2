@@ -832,7 +832,7 @@ class ProductController extends Controller
             'Product Barcode',
             'Product Name',
             'Brand',
-            'Category ID',
+            'Category Code',
             'Subcategory ID',
             'Unit ID',
             'Item Type',
@@ -869,7 +869,7 @@ class ProductController extends Controller
 
             fputcsv($file, $columns); // ← column headers row
 
-            $products = Product::with(['variations.attributeValues.attribute'])->get();
+            $products = Product::with(['category', 'variations.attributeValues.attribute'])->get();
 
             foreach ($products as $product) {
                 $productRow = [
@@ -877,7 +877,7 @@ class ProductController extends Controller
                     $product->barcode ?? '',
                     $product->name,
                     $product->brand ?? '',
-                    $product->category_id,
+                    $product->category->code ?? '',
                     $product->subcategory_id ?? '',
                     $product->measurement_unit,
                     $product->item_type,
@@ -999,7 +999,7 @@ class ProductController extends Controller
     public function bulkUploadTemplate()
     {
         $attributes    = Attribute::orderBy('id')->pluck('name')->toArray();
-        $categories    = ProductCategory::orderBy('id')->get(['id', 'name']);
+        $categories    = ProductCategory::orderBy('code')->get(['id', 'code', 'name']);
         $subcategories = ProductSubcategory::orderBy('id')->get(['id', 'name']);
         $units         = MeasurementUnit::orderBy('id')->get(['id', 'name', 'shortcode']);
 
@@ -1008,7 +1008,7 @@ class ProductController extends Controller
             'Product Barcode',
             'Product Name',
             'Brand',
-            'Category ID',
+            'Category Code',
             'Subcategory ID',
             'Unit ID',
             'Item Type',
@@ -1047,7 +1047,7 @@ class ProductController extends Controller
 
             fputcsv($file, $columns); // ← column headers row
 
-            $catList  = $categories->map(fn($c) => $c->id . '=' . $c->name)->implode(' | ');
+            $catList  = 'category code: ' . $categories->map(fn($c) => $c->code . '=' . $c->name)->implode(' | ');
             $subList  = $subcategories->count()
                 ? $subcategories->map(fn($s) => $s->id . '=' . $s->name)->implode(' | ')
                 : 'optional — leave blank if none';
@@ -1087,7 +1087,7 @@ class ProductController extends Controller
 
             fputcsv($file, $helperRow);
 
-            $defaultCatId  = $categories->first()?->id ?? 1;
+            $defaultCatId  = $categories->first()?->code ?? '';
             $defaultSubId  = '';
             $defaultUnitId = $units->first()?->id ?? 1;
             $blankAttrs    = array_fill(0, count($attributes), '');

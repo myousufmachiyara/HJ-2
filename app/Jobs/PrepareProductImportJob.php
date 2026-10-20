@@ -53,19 +53,37 @@ class PrepareProductImportJob implements ShouldQueue
             $colCount  = count($header);
 
             // drop helper/instruction row if present
+            $helperSkipped = 0;
             if (! empty($rows) && str_starts_with(trim((string) ($rows[0][0] ?? '')), '←')) {
                 array_shift($rows);
+                $helperSkipped = 1;
             }
 
             $categoryMap    = ProductCategory::all()->keyBy(fn ($c) => strtolower(trim($c->name)));
             $subcategoryMap = ProductSubcategory::all()->keyBy(fn ($s) => strtolower(trim($s->name)));
             $defaultUnit    = MeasurementUnit::first()?->id ?? 1;
 
-            $resolveCategory = function (string $raw) use (&$categoryMap): ?int {
+            // Category CODE (e.g. 3KT, FAB). Old files with "Category ID" still work.
+            $codeMap      = ProductCategory::all()->keyBy(fn ($c) => strtoupper(trim((string) $c->code)));
+            $hasCodeCol   = in_array('category code', $header, true);
+            $unknownCodes = [];   // code => [row numbers]
+
+            $resolveCategoryCode = function (string $raw, int $rowNum) use (&$codeMap, &$categoryMap, &$unknownCodes): ?int {
+                $raw = trim($raw);
+                if ($raw === '' || strtolower($raw) === 'nan') return null;
+                $key = strtoupper($raw);
+                if (isset($codeMap[$key])) return $codeMap[$key]->id;
+                if (isset($categoryMap[strtolower($raw)])) return $categoryMap[strtolower($raw)]->id;   // category name typed instead
+                $unknownCodes[$raw][] = $rowNum;
+                return null;
+            };
+
+            $resolveCategory = function (string $raw) use (&$categoryMap, &$codeMap): ?int {
                 $raw = trim($raw);
                 if ($raw === '' || strtolower($raw) === 'nan') return null;
                 if (str_starts_with(strtolower($raw), 'http')) return null;
                 if (is_numeric($raw)) return (int) $raw > 0 ? (int) $raw : null;
+                if (isset($codeMap[strtoupper($raw)])) return $codeMap[strtoupper($raw)]->id;
 
                 $key = strtolower($raw);
                 if (! isset($categoryMap[$key])) {
@@ -101,7 +119,8 @@ class PrepareProductImportJob implements ShouldQueue
             $lastProduct = [];
             $seenVarSKUs = [];
 
-            foreach ($rows as $row) {
+            foreach ($rows as $rowIndex => $row) {
+                $rowNum    = $rowIndex + 2 + $helperSkipped;   // Excel row number
                 $rowValues = array_filter(array_map('trim', array_map('strval', $row)));
                 if (empty($rowValues)) continue;
 
@@ -118,7 +137,7 @@ class PrepareProductImportJob implements ShouldQueue
                 if ($productName === '' || $isNan) {
                     if (isset($lastProduct[$productSku])) {
                         foreach ([
-                            'product name', 'product barcode', 'brand', 'category id', 'subcategory id', 'unit id',
+                            'product name', 'product barcode', 'brand', 'category code', 'category id', 'subcategory id', 'unit id',
                             'item type', 'description', 'vendor id', 'weight', 'sku opening date',
                             'cmt cost', 'cost price', 'selling price', 'compare at price',
                             'opening stock', 'reorder level', 'max stock level', 'min order qty',
@@ -150,7 +169,9 @@ class PrepareProductImportJob implements ShouldQueue
                 }
 
                 // Resolve FK ids ONCE here so chunk workers never create dup categories.
-                $catId = $resolveCategory($data['category id'] ?? '');
+                $catId = $hasCodeCol
+                    ? $resolveCategoryCode($data['category code'] ?? '', $rowNum)
+                    : $resolveCategory($data['category id'] ?? '');
                 if ($catId === null) $catId = $fallbackCategoryId();
                 $rawUnitId = trim($data['unit id'] ?? '');
 
@@ -160,6 +181,16 @@ class PrepareProductImportJob implements ShouldQueue
 
                 $parsedRows[] = $data;
                 unset($data); // break the reference before next iteration
+            }
+
+            // A mistyped category code stops the import (nothing is saved), so products
+            // never land in the wrong category.
+            if ($unknownCodes) {
+                $list = collect($unknownCodes)->map(fn ($r, $c) => "'{$c}' (row " . implode(', ', array_slice($r, 0, 5)) . (count($r) > 5 ? ' …' : '') . ')')->implode('; ');
+                $valid = ProductCategory::orderBy('code')->get()->map(fn ($c) => "{$c->code} = {$c->name}")->implode(', ');
+                $import->update(['status' => 'failed', 'message' => "Unknown category code: {$list}. Nothing was imported. Valid codes: {$valid}"]);
+                $this->cleanup($import);
+                return;
             }
 
             if (empty($parsedRows)) {
