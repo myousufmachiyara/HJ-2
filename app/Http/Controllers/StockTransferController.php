@@ -291,11 +291,11 @@ class StockTransferController extends Controller
             $pdf->Ln(5);
             $html = '<table border="0.3" cellpadding="4" style="text-align:center;font-size:10px;">
                 <tr style="background-color:#f5f5f5; font-weight:bold;">
-                    <th width="8%">S.No</th>
+                    <th width="7%">S.No</th>
                     <th width="18%">Code</th>
-                    <th width="20%">Name</th>
-                    <th width="38%">Variation</th>
-                    <th width="16%">Quantity</th>
+                    <th width="32%">Name</th>
+                    <th width="31%">Variation</th>
+                    <th width="12%">Quantity</th>
                 </tr>';
 
             $count = 0;
