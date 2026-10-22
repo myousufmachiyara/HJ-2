@@ -43,6 +43,13 @@
           </div>
         @endif
 
+        @if($lastImport && in_array($lastImport->status, ['completed', 'failed'], true) && $lastImport->updated_at->gt(now()->subMinutes(30)))
+          <div class="alert {{ $lastImport->status === 'failed' ? 'alert-danger' : 'alert-info' }}">
+            <b>Last import</b> ({{ $lastImport->original_name }}, {{ $lastImport->updated_at->diffForHumans() }}):
+            {{ $lastImport->message ?: $lastImport->status }}
+          </div>
+        @endif
+
         <!-- Live import progress (hidden until an import is running) -->
         <div id="importProgress" class="mb-3" style="display:none;">
           <div class="progress" style="height:22px;">
@@ -206,6 +213,8 @@
     // Auto-start progress tracking after a bulk import was queued.
     @if(session('import_id'))
       trackImport({{ session('import_id') }});
+    @elseif($lastImport && in_array($lastImport->status, ['queued', 'preparing', 'processing'], true))
+      trackImport({{ $lastImport->id }});   // page reloaded while an import is still running
     @endif
   });
 

@@ -35,7 +35,9 @@ class ProductController extends Controller
             : collect();
         // products an earlier import saved with Excel formula text as SKU / name
         $formulaProducts = Product::where('sku', 'like', '=%')->orWhere('name', 'like', '%[=%')->count();
-        return view('products.index', compact('products', 'categories', 'shopifyStores', 'formulaProducts'));
+        // last bulk import: keep tracking it if still running, show its result if just finished
+        $lastImport = ProductImport::where('created_at', '>', now()->subDay())->latest('id')->first();
+        return view('products.index', compact('products', 'categories', 'shopifyStores', 'formulaProducts', 'lastImport'));
     }
 
     /**
@@ -1016,11 +1018,19 @@ class ProductController extends Controller
             $progress = 100;
         }
 
+        // Nobody picked the job up yet → say so instead of a silent bar.
+        $message = $import->message;
+        if ($import->status === 'queued' && $import->created_at && $import->created_at->lt(now()->subMinutes(2))) {
+            $message = 'Waiting for the background worker (queued ' . $import->created_at->diffForHumans()
+                . '). The server task that runs "php artisan schedule:run" every minute is not working — '
+                . 'or run once on the server: php artisan queue:work --queue=default,imports --stop-when-empty';
+        }
+
         return response()->json([
             'id'       => $import->id,
             'status'   => $import->status,
             'progress' => $progress,
-            'message'  => $import->message,
+            'message'  => $message,
             'counts'   => [
                 'products_created'   => $import->products_created,
                 'products_updated'   => $import->products_updated,

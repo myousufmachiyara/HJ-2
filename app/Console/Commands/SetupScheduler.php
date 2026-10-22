@@ -49,9 +49,8 @@ class SetupScheduler extends Command
         $this->line('After it has run for a couple of minutes, verify with:');
         $this->line('  php artisan app:setup-scheduler --check');
         $this->newLine();
-        $this->line('<comment>Note:</comment> this is separate from start-worker.bat, which you still need to run');
-        $this->line('manually whenever you do a bulk CSV product import (that job uses the dedicated');
-        $this->line('"imports" queue, not the scheduler-driven default queue that Shopify sync uses).');
+        $this->line('<comment>Note:</comment> the scheduled worker runs both the "default" queue (Shopify sync)');
+        $this->line('and the "imports" queue (bulk product import) — start-worker.bat is no longer needed.');
 
         return self::SUCCESS;
     }

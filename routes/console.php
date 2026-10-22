@@ -24,7 +24,9 @@ Schedule::call(function () {
     file_put_contents(storage_path('logs/cron-marker.txt'), now());
 })->everyMinute();
 
-Schedule::command('queue:work --stop-when-empty --max-time=3600 --tries=3')
+// Also works the "imports" queue (bulk product import), so imports no longer need
+// start-worker.bat to be running. Shopify / default jobs are picked first.
+Schedule::command('queue:work --queue=default,imports --stop-when-empty --max-time=3600 --tries=3')
     ->everyMinute()
     ->withoutOverlapping()
     ->runInBackground()
