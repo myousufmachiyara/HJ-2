@@ -142,6 +142,7 @@
                             <th>URL</th>
                             <th>Status</th>
                             <th>Import Defaults</th>
+                            <th>Brands <small class="text-muted fw-normal">(pushed to this store)</small></th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -196,6 +197,27 @@
                                     </form>
                                 </details>
                             </td>
+                            <td style="min-width:200px">
+                                @forelse($store->brandList() ? preg_split('/[\r\n,]+/', $store->brands) : [] as $b)
+                                    @if(trim($b) !== '')<span class="badge bg-light text-dark border">{{ trim($b) }}</span>@endif
+                                @empty
+                                    <span class="badge bg-warning text-dark">Not set</span>
+                                @endforelse
+                                <details>
+                                    <summary class="small text-primary" style="cursor:pointer;">Edit</summary>
+                                    <form action="{{ route('shopify.store.brands', $store->id) }}" method="POST" class="mt-2">
+                                        @csrf
+                                        @method('PUT')
+                                        <textarea name="brands" rows="3" class="form-control form-control-sm mb-1" placeholder="One brand per line">{{ $store->brands }}</textarea>
+                                        @if($brands->isNotEmpty())
+                                            <div class="small text-muted mb-1">Brands in products:
+                                                @foreach($brands as $b => $n)<a href="#" class="add-brand" data-brand="{{ $b }}">{{ $b }}</a> ({{ $n }})@if(!$loop->last), @endif @endforeach
+                                            </div>
+                                        @endif
+                                        <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                                    </form>
+                                </details>
+                            </td>
                             <td>
                                 <div class="d-flex flex-wrap gap-2">
                                     {{-- Manual Sync (only shown when connected) --}}
@@ -207,14 +229,11 @@
                                         </button>
                                     </form>
                                     {{-- Push software → Shopify: new products only, as Draft --}}
-                                    <form action="{{ route('shopify.store.push', $store->id) }}" method="POST"
-                                          onsubmit="return confirm('Push {{ $newCount }} new product(s) to {{ addslashes($store->shop_name) }} as Draft?')">
-                                        @csrf
-                                        <button type="submit" class="btn btn-sm btn-primary" {{ $newCount ? '' : 'disabled' }}
-                                                title="Send products that are not on Shopify yet (created as Draft, no stock)">
-                                            Push New ({{ $newCount }})
-                                        </button>
-                                    </form>
+                                    {{-- checks every SKU against this Shopify store first; nothing is sent until confirmed --}}
+                                    <a href="{{ route('shopify.store.push-preview', $store->id) }}" class="btn btn-sm btn-primary {{ ($storeNew[$store->id] ?? 0) || !$store->brandList() ? '' : 'disabled' }}"
+                                       title="Check which products are missing on this Shopify store (by SKU), then create them as Draft">
+                                        Push New{{ $store->brandList() ? ' (' . ($storeNew[$store->id] ?? 0) . ' to check)' : '' }}
+                                    </a>
                                     {{-- after adding write_products to the app: renew token / approve new permissions --}}
                                     <form action="{{ route('shopify.store.check-access', $store->id) }}" method="POST">
                                         @csrf
@@ -329,4 +348,15 @@
 
     </div>
 </div>
+<script>
+  $(function () {
+    $(document).on('click', '.add-brand', function (e) {
+      e.preventDefault();
+      const ta = $(this).closest('form').find('textarea[name=brands]');
+      const list = ta.val().split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+      if (!list.some(x => x.toLowerCase() === String($(this).data('brand')).toLowerCase())) list.push($(this).data('brand'));
+      ta.val(list.join('\n'));
+    });
+  });
+</script>
 @endsection

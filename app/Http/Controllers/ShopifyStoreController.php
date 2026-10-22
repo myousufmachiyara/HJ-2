@@ -30,8 +30,13 @@ class ShopifyStoreController extends Controller
         $categories = ProductCategory::orderBy('name')->get();
         $units      = MeasurementUnit::orderBy('name')->get();
         $newCount   = PushProductsToShopify::eligibleQuery()->count();   // products not yet on Shopify
+        // per store: not-yet-pushed products of the brands listed for it
+        $brandCounts = PushProductsToShopify::eligibleQuery()->selectRaw('LOWER(TRIM(brand)) b, COUNT(*) n')->groupBy('b')->pluck('n', 'b');
+        $storeNew = $stores->mapWithKeys(fn ($st) => [$st->id => collect($st->brandList())->sum(fn ($b) => $brandCounts[$b] ?? 0)]);
+        $brands = \App\Models\Product::whereNotNull('brand')->where('brand', '!=', '')
+            ->selectRaw('TRIM(brand) b, COUNT(*) n')->groupBy('b')->orderBy('b')->pluck('n', 'b');
 
-        return view('shopify.settings', compact('stores', 'categories', 'units', 'newCount'));
+        return view('shopify.settings', compact('stores', 'categories', 'units', 'newCount', 'storeNew', 'brands'));
     }
 
     // ─────────────────────────────────────────────
@@ -361,7 +366,68 @@ class ShopifyStoreController extends Controller
     public function pushNew($id)
     {
         $store = ShopifyStore::findOrFail($id);
+        if ($err = $this->brandsMissing($store)) return back()->with('error', $err);
         return $this->dispatchPush($store, null);
+    }
+
+    /** Brands whose products belong to this store. */
+    public function saveBrands(Request $request, $id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        $request->validate(['brands' => 'nullable|string|max:5000']);
+        $list = collect(preg_split('/[\r\n,]+/', (string) $request->brands))->map(fn ($b) => trim(preg_replace('/\s+/', ' ', $b)))->filter()->unique(fn ($b) => mb_strtolower($b));
+
+        // a brand can belong to one store only
+        foreach (ShopifyStore::where('id', '!=', $store->id)->get() as $other) {
+            $clash = $list->filter(fn ($b) => in_array(ShopifyStore::normalizeBrand($b), $other->brandList(), true));
+            if ($clash->isNotEmpty()) {
+                return back()->with('error', "Brand {$clash->implode(', ')} is already set for {$other->shop_name}.");
+            }
+        }
+        $store->update(['brands' => $list->implode("\n") ?: null]);
+        return back()->with('success', "{$store->shop_name}: brands saved — " . ($list->implode(', ') ?: 'none'));
+    }
+
+    /**
+     * What "Push New" would do, checked against the live Shopify store: create / link (already
+     * there with the same SKU) / not sent (other store's brand, no store for the brand, SKU clash).
+     */
+    public function pushPreview($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if (!$store->isConnected()) return back()->with('error', "{$store->shop_name} is not connected.");
+        if ($err = $this->brandsMissing($store)) return redirect()->route('shopify.settings')->with('error', $err);
+
+        try {
+            $plan = \App\Services\ShopifyPushPlan::build($store, null);
+        } catch (\Throwable $e) {
+            return redirect()->route('shopify.settings')->with('error', "{$store->shop_name}: could not read Shopify — {$e->getMessage()}");
+        }
+
+        if (request('download')) {
+            return response()->streamDownload(function () use ($plan) {
+                $f = fopen('php://output', 'w');
+                fputcsv($f, ['Result', 'Product SKU', 'Name', 'Brand', 'Sizes', 'Note']);
+                $row = fn ($r, $p, $note = '') => fputcsv($f, [$r, $p->sku, $p->name, $p->brand, $p->variations->pluck('sku')->implode(' '), $note]);
+                foreach ($plan->create as $x)     $row('Will be created', $x->product);
+                foreach ($plan->link as $x)       $row('Already on Shopify - link only', $x->product, 'Shopify product ' . $x->shopify_id . ($x->missing ? " ({$x->missing} size(s) not on Shopify)" : ''));
+                foreach ($plan->conflict as $x)   $row('Not sent - SKUs on several Shopify products', $x->product, implode(', ', $x->shopify_ids));
+                foreach ($plan->otherStore as $x) $row('Not sent - other store', $x->product, $x->store);
+                foreach ($plan->noBrand as $x)    $row('Not sent - brand not set for any store', $x->product);
+                fclose($f);
+            }, 'shopify-push-check-' . \Illuminate\Support\Str::slug($store->shop_name) . '.csv', ['Content-Type' => 'text/csv']);
+        }
+
+        return view('shopify.push-preview', compact('store', 'plan'));
+    }
+
+    private function brandsMissing(ShopifyStore $store): ?string
+    {
+        if ($store->brandList()) return null;
+        $others = ShopifyStore::where('id', '!=', $store->id)->count();
+        return $others
+            ? "Set the brands for {$store->shop_name} first (Shopify Stores → Brands), so products of the other store are never pushed here."
+            : null;
     }
 
     /** Products list: push the ticked products to the chosen store. */
@@ -400,7 +466,7 @@ class ShopifyStoreController extends Controller
         PushProductsToShopify::dispatch($store, $log, $productIds);
 
         return redirect()->route('shopify.settings')->with('success',
-            "Pushing {$count} product(s) to {$store->shop_name} as Draft — see Sync History below for progress.");
+            "Pushing to {$store->shop_name}: products already on Shopify (same SKU) are only linked, the rest are created as Draft — see Sync History below.");
     }
 
     public function manualSync($id)

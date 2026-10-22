@@ -270,6 +270,12 @@ Route::middleware(['auth'])->group(function () {
         Route::post('store/{id}/reauthorize', [ShopifyStoreController::class, 'reauthorize'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.reauthorize');
+        Route::get('store/{id}/push-preview', [ShopifyStoreController::class, 'pushPreview'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.push-preview');
+        Route::put('store/{id}/brands', [ShopifyStoreController::class, 'saveBrands'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.brands');
         Route::post('store/{id}/fix-skus', [ShopifyStoreController::class, 'fixSkus'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.fix-skus');

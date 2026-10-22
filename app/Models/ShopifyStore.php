@@ -22,6 +22,7 @@ class ShopifyStore extends Model
         'token_expires_at',
         'default_category_id',
         'default_measurement_unit',
+        'brands',
     ];
 
     protected $hidden = [
@@ -259,6 +260,18 @@ class ShopifyStore extends Model
     // ─────────────────────────────────────────────
     //  Convenience helpers
     // ─────────────────────────────────────────────
+
+    /** Brands whose products go to this store, lower-cased (one per line or comma separated). */
+    public function brandList(): array
+    {
+        return collect(preg_split('/[\r\n,]+/', (string) $this->brands))
+            ->map(fn ($b) => mb_strtolower(trim(preg_replace('/\s+/', ' ', $b))))->filter()->unique()->values()->all();
+    }
+
+    public static function normalizeBrand(?string $brand): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/', ' ', (string) $brand)));
+    }
 
     public function isConnected(): bool
     {

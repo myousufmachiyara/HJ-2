@@ -198,6 +198,21 @@ class ProcessShopifyImport implements ShouldQueue
             $existing?->update(['shopify_store_id' => $this->store->id]);
         }
 
+        // Product already made in the software (e.g. imported from the LAAM export) with the
+        // same size SKU / barcode → link it instead of creating a duplicate.
+        if (!$existing) {
+            $codes = collect($shp['variants'] ?? [])->flatMap(fn ($v) => [trim((string) ($v['sku'] ?? '')), trim((string) ($v['barcode'] ?? ''))])
+                ->filter()->unique()->values();
+            if ($codes->isNotEmpty()) {
+                $existing = Product::whereNull('shopify_product_id')
+                    ->where(fn ($q) => $q->whereIn('sku', $codes)
+                        ->orWhereHas('variations', fn ($v) => $v->whereIn('sku', $codes)->orWhereIn('barcode', $codes)))
+                    ->first();
+                $existing?->update(['shopify_store_id' => $this->store->id, 'shopify_product_id' => (string) $shp['id']]);
+                if ($existing) Log::info("  Linked Shopify product {$shp['id']} to software product {$existing->sku} (same SKU).");
+            }
+        }
+
         $values = [
                 'name'              => $shp['title'],
                 // FIX: product SKU is now always store-scoped and never

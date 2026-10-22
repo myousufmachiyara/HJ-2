@@ -22,8 +22,9 @@ use Illuminate\Support\Str;
  *     category (product type), sizes (options/variants), each size's selling price,
  *     compare-at price, SKU and barcode, plus product images when the server is public.
  *   - Stock is NOT sent.
- *   - If Shopify already has a variant with the same SKU, the product is only linked
- *     (no duplicate is created).
+ *   - Shopify is read once (every SKU/barcode). A product whose size SKU or barcode is already
+ *     there is only LINKED (no duplicate created); brands of another store are never sent;
+ *     bulk "Push New" sends only brands listed for this store. See App\Services\ShopifyPushPlan.
  *   - After creation the local product is linked (shopify_store_id / shopify_product_id),
  *     so it is never pushed twice and a later "Sync Now" updates the same product.
  */
@@ -64,20 +65,38 @@ class PushProductsToShopify implements ShouldQueue
                 throw new \RuntimeException($scopeError);
             }
 
-            $products = self::eligibleQuery($this->productIds)
-                ->with(['variations.attributeValues.attribute', 'images', 'category'])
-                ->orderBy('id')->get();
+            $plan = \App\Services\ShopifyPushPlan::build($this->store, $this->productIds);
 
-            // selected products that are not eligible (already on Shopify, raw, inactive…)
-            $skipped = $this->productIds !== null ? count(array_unique($this->productIds)) - $products->count() : 0;
-            $this->log->update(['total_products' => $products->count() + $skipped, 'skipped_products' => $skipped]);
+            $notSent = $plan->conflict->count() + $plan->otherStore->count() + $plan->noBrand->count();
+            $total   = $plan->create->count() + $plan->link->count() + $notSent;
+            // selected products that are not eligible at all (already on Shopify, raw, inactive…)
+            $ineligible = $this->productIds !== null ? max(0, count(array_unique($this->productIds)) - $total) : 0;
+            $this->log->update(['total_products' => $total + $ineligible, 'skipped_products' => $ineligible + $notSent]);
 
-            foreach ($products as $product) {
+            foreach ($plan->conflict as $c)   $errors[] = "{$c->product->sku}: its SKUs are on " . count($c->shopify_ids) . ' different Shopify products — not sent, check by hand';
+            foreach ($plan->otherStore as $o) $errors[] = "{$o->product->sku}: brand '{$o->product->brand}' belongs to {$o->store} — not sent";
+
+            // already on Shopify → link only
+            foreach ($plan->link as $l) {
+                $this->linkExisting($l);
+                $this->log->increment('skipped_products');
+                $errors[] = "{$l->product->sku}: already on Shopify — linked, not duplicated";
+            }
+
+            foreach ($plan->create as $c) {
+                $product = $c->product;
                 try {
-                    $result = $this->pushOne($product);
-                    $this->log->increment($result === 'linked' ? 'skipped_products' : 'synced_products');
-                    if ($result === 'linked') $errors[] = "{$product->sku}: already on Shopify — linked, not duplicated";
-                    Log::info("✓ push {$product->sku} ({$result})");
+                    // a SKU repeated earlier in this same run
+                    $again = $plan->matchesFor($product);
+                    if ($again) {
+                        $this->link($product, (string) collect($again)->first()['product']);
+                        $this->log->increment('skipped_products');
+                        continue;
+                    }
+                    $gid = $this->pushOne($product);
+                    $plan->remember($product, Str::afterLast($gid, '/'));
+                    $this->log->increment('synced_products');
+                    Log::info("✓ push {$product->sku} (created)");
                 } catch (\Throwable $e) {
                     $this->log->increment('failed_products');
                     $errors[] = "{$product->sku}: {$e->getMessage()}";
@@ -103,22 +122,21 @@ class PushProductsToShopify implements ShouldQueue
         }
     }
 
-    /** @return string created|linked */
+    /** Product already on Shopify: link it and its sizes (by SKU / barcode). Nothing is sent. */
+    private function linkExisting(object $l): void
+    {
+        $this->link($l->product, (string) $l->shopify_id);
+        foreach ($l->variants as $vid => $hit) {
+            if ($vid && !empty($hit['variant'])) {
+                \App\Models\ProductVariation::whereKey($vid)->update(['shopify_variant_id' => $hit['variant']]);
+            }
+        }
+    }
+
+    /** Create one product on Shopify; returns its gid. */
     private function pushOne(Product $product): string
     {
-        // fresh check — another push may have linked it meanwhile
-        if (Product::whereKey($product->id)->whereNotNull('shopify_product_id')->exists()) {
-            return 'linked';
-        }
-
         $input = $this->buildInput($product);
-
-        // Same SKU already on Shopify? → link instead of creating a duplicate.
-        $firstSku = $input['variants'][0]['sku'] ?? null;
-        if ($firstSku && ($existingId = $this->findProductIdBySku($firstSku))) {
-            $this->link($product, $existingId);
-            return 'linked';
-        }
 
         $data = $this->store->graphql(<<<'GQL'
             mutation PushProduct($input: ProductSetInput!) {
@@ -149,7 +167,7 @@ class PushProductsToShopify implements ShouldQueue
             \App\Models\ProductVariation::where('product_id', $product->id)->where('sku', $node['sku'])
                 ->update(['shopify_variant_id' => Str::afterLast($node['id'], '/')]);
         }
-        return 'created';
+        return $gid;
     }
 
     /** ProductSetInput for one product (public for tests). */
@@ -256,20 +274,6 @@ class PushProductsToShopify implements ShouldQueue
             $files[] = ['originalSource' => $url, 'contentType' => 'IMAGE', 'alt' => $product->name];
         }
         return $files;
-    }
-
-    private function findProductIdBySku(string $sku): ?string
-    {
-        $data = $this->store->graphql(<<<'GQL'
-            query FindBySku($q: String!) {
-              productVariants(first: 5, query: $q) { nodes { sku product { id } } }
-            }
-            GQL, ['q' => 'sku:"' . str_replace('"', '\\"', $sku) . '"']);
-
-        foreach ($data['productVariants']['nodes'] ?? [] as $node) {
-            if (($node['sku'] ?? null) === $sku) return $node['product']['id'] ?? null;   // exact match only
-        }
-        return null;
     }
 
     private function link(Product $product, string $gid): void
