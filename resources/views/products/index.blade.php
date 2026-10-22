@@ -30,6 +30,19 @@
 
       <div class="card-body">
 
+        @if(($formulaProducts ?? 0) > 0)
+          <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+            <span><b>{{ $formulaProducts }}</b> product(s) were imported with Excel <b>formulas</b> (e.g. SKU "=LOWER(…)") instead of values.</span>
+            @can('products.delete')
+              <form method="POST" action="{{ route('products.cleanup-formula') }}" onsubmit="return confirm('Remove the {{ $formulaProducts }} product(s) imported with formulas?')">
+                @csrf
+                <button class="btn btn-sm btn-danger"><i class="fas fa-broom"></i> Remove them</button>
+              </form>
+            @endcan
+            <span class="text-muted small">Then upload the sheet again — formulas are now read as their values.</span>
+          </div>
+        @endif
+
         <!-- Live import progress (hidden until an import is running) -->
         <div id="importProgress" class="mb-3" style="display:none;">
           <div class="progress" style="height:22px;">

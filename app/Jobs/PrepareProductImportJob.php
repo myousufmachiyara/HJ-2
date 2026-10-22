@@ -43,9 +43,21 @@ class PrepareProductImportJob implements ShouldQueue
 
         try {
             // ── Read file from storage ───────────────────────────────────
-            $rows = Excel::toArray([], $import->file_path, 'local')[0] ?? [];
+            // Formulas (e.g. =LOWER(SUBSTITUTE(C2," ","-"))) are read as their RESULT, not as text.
+            $rows = Excel::toArray(new class implements \Maatwebsite\Excel\Concerns\ToArray, \Maatwebsite\Excel\Concerns\WithCalculatedFormulas {
+                public function array(array $array) {}
+            }, $import->file_path, 'local')[0] ?? [];
             if (empty($rows)) {
                 throw new \Exception('Uploaded file is empty.');
+            }
+
+            // Anything still looking like a formula (CSV saved with formula text, or a formula
+            // Excel could not work out) stops the import — nothing is saved.
+            if ($bad = self::formulaCells($rows)) {
+                $import->update(['status' => 'failed', 'message' => 'Formulas found instead of values: ' . implode('; ', $bad)
+                    . '. Nothing was imported. In Excel select the sheet → Copy → Paste Special → Values, save, and upload again.']);
+                $this->cleanup($import);
+                return;
             }
 
             $rawHeader = array_shift($rows);
@@ -271,6 +283,25 @@ class PrepareProductImportJob implements ShouldQueue
             $import->update(['status' => 'failed', 'message' => 'Import failed: ' . $e->getMessage()]);
             $this->cleanup($import);
         }
+    }
+
+    /** Cells that are formula text or formula errors, as "row N, Column: value" (first 10). */
+    public static function formulaCells(array $rows): array
+    {
+        $header = array_map(fn ($h) => trim((string) $h), $rows[0] ?? []);
+        $out = [];
+        foreach ($rows as $i => $row) {
+            foreach ((array) $row as $c => $v) {
+                $v = trim((string) $v);
+                if ($v === '') continue;
+                if (str_starts_with($v, '=') || preg_match('/^#(NAME\?|VALUE!|REF!|DIV\/0!|N\/A|NUM!|NULL!|SPILL!|CALC!)$/', $v)) {
+                    $col = $header[$c] ?? ('column ' . ($c + 1));
+                    $out[] = 'row ' . ($i + 1) . ", {$col}: " . \Illuminate\Support\Str::limit($v, 40);
+                    if (count($out) >= 10) return $out;
+                }
+            }
+        }
+        return $out;
     }
 
     private function cleanup(ProductImport $import): void

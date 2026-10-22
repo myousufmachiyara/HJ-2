@@ -77,7 +77,8 @@ class ItemsImportController extends Controller
         // Read the first sheet directly (row 1 = header). Done here instead of through an
         // import class so an old copy of app/Imports/Rawrowsimport.php on the server
         // can never be picked up by mistake.
-        $sheet  = Excel::toArray(new class implements \Maatwebsite\Excel\Concerns\ToArray {
+        // WithCalculatedFormulas: a cell with =FORMULA(...) gives its result, not the formula text.
+        $sheet  = Excel::toArray(new class implements \Maatwebsite\Excel\Concerns\ToArray, \Maatwebsite\Excel\Concerns\WithCalculatedFormulas {
             public function array(array $array) {}
         }, $request->file('file'))[0] ?? [];
         $header = array_map(fn ($h) => trim((string) $h), $sheet[0] ?? []);

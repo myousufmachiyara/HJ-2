@@ -33,7 +33,46 @@ class ProductController extends Controller
         $shopifyStores = auth()->user()?->can('shopify_stores.edit')
             ? \App\Models\ShopifyStore::orderBy('shop_name')->get()->filter->isConnected()->values()
             : collect();
-        return view('products.index', compact('products', 'categories', 'shopifyStores'));
+        // products an earlier import saved with Excel formula text as SKU / name
+        $formulaProducts = Product::where('sku', 'like', '=%')->orWhere('name', 'like', '%[=%')->count();
+        return view('products.index', compact('products', 'categories', 'shopifyStores', 'formulaProducts'));
+    }
+
+    /**
+     * Remove products a bulk import saved with Excel formula text (SKU "=LOWER(…)").
+     * Rows never used in any entry are removed completely, so the corrected sheet can be
+     * imported again with the same names; used ones are only soft-deleted.
+     */
+    public function cleanupFormulaProducts()
+    {
+        $removed = 0; $kept = 0;
+        Product::where('sku', 'like', '=%')->orWhere('name', 'like', '%[=%')->with('variations')->get()
+            ->each(function (Product $p) use (&$removed, &$kept) {
+                $softDelete = function () use ($p, &$kept) {
+                    $p->refresh();
+                    $p->variations()->get()->each->delete();
+                    $p->update(['name' => \Illuminate\Support\Str::limit($p->name, 200, '') . ' [deleted ' . $p->id . ']']);
+                    $p->delete();
+                    $kept++;
+                };
+                if (\App\Models\StockLedger::where('product_id', $p->id)->exists()) { $softDelete(); return; }
+                try {
+                    DB::transaction(function () use ($p) {
+                        foreach ($p->variations as $v) {
+                            $v->attributeValues()->detach();
+                            $v->forceDelete();
+                        }
+                        $p->images()->delete();
+                        $p->forceDelete();
+                    });
+                    $removed++;
+                } catch (\Illuminate\Database\QueryException $e) {
+                    $softDelete();   // still referenced somewhere (invoice line, etc.)
+                }
+            });
+
+        return redirect()->route('products.index')->with('success', "Removed {$removed} product(s) imported with formulas"
+            . ($kept ? " ({$kept} already used in entries were soft-deleted)" : '') . '. Now import the corrected sheet again.');
     }
 
     public function barcodeSelection()
