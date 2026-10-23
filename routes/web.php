@@ -39,6 +39,10 @@ use App\Http\Controllers\{
 
 Auth::routes();
 
+// product pictures (public — Shopify downloads them when products are pushed)
+Route::get('/product-image/{image}', [\App\Http\Controllers\ProductImageController::class, 'show'])
+    ->whereNumber('image')->name('product-image.show');
+
 Route::middleware(['auth'])->group(function () {
 
     // ── Dashboard ─────────────────────────────────────────────────────

@@ -251,7 +251,7 @@
               <div id="existingImages" class="mt-2 d-flex flex-wrap">
                 @foreach($product->images as $img)
                   <div class="existing-image-wrapper position-relative me-2 mb-2">
-                    <img src="{{ asset('storage/' . $img->image_path) }}" width="120" height="120" style="object-fit:cover;border-radius:5px;" class="img-thumbnail">
+                    <img src="{{ $img->url }}" width="120" height="120" style="object-fit:cover;border-radius:5px;" class="img-thumbnail" alt="Image missing — remove and upload again">
                     <button type="button" class="btn btn-sm btn-danger position-absolute top-0 end-0 remove-existing-image" data-id="{{ $img->id }}">&times;</button>
                     <input type="hidden" name="keep_images[]" value="{{ $img->id }}">
                   </div>

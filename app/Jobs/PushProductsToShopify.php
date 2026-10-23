@@ -266,7 +266,7 @@ class PushProductsToShopify implements ShouldQueue
     {
         $files = [];
         foreach ($product->images as $img) {
-            $url  = asset('storage/' . ltrim($img->image_path, '/'));
+            $url  = $img->url;
             $host = parse_url($url, PHP_URL_HOST) ?: '';
             $private = $host === '' || $host === 'localhost' || str_ends_with($host, '.test') || str_ends_with($host, '.local')
                 || (filter_var($host, FILTER_VALIDATE_IP) && !filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE));

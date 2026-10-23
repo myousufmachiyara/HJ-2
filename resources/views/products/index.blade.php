@@ -105,7 +105,8 @@
                 <td>{{ $index + 1 }}</td>
                 <td>
                   @if($product->images->first())
-                    <img src="{{ asset('storage/' . $product->images->first()->image_path) }}" width="60" height="60" style="object-fit:cover;border-radius:5px;">
+                    <img src="{{ $product->images->first()->url }}" width="60" height="60" loading="lazy" style="object-fit:cover;border-radius:5px;"
+                         alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'text-muted small', textContent: 'Image missing'}))">
                   @else
                     <span class="text-muted">No Image</span>
                   @endif
