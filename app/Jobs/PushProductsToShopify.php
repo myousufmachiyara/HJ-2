@@ -109,6 +109,7 @@ class PushProductsToShopify implements ShouldQueue
                 }
             }
 
+            $errors = array_merge($errors, $this->pictureErrors);
             $this->log->update([
                 'status'        => 'completed',
                 'error_message' => $errors ? Str::limit(implode(' | ', $errors), 2000) : null,
@@ -133,10 +134,20 @@ class PushProductsToShopify implements ShouldQueue
         }
     }
 
+    /** Notes about pictures that could not be sent (shown in Sync History). */
+    private array $pictureErrors = [];
+
     /** Create one product on Shopify; returns its gid. */
     private function pushOne(Product $product): string
     {
         $input = $this->buildInput($product);
+
+        // pictures: the files themselves are uploaded to Shopify first
+        if ($product->images->isNotEmpty()) {
+            ['files' => $files, 'errors' => $picErrors] = (new \App\Services\ShopifyImages($this->store))->stageAll($product);
+            if ($files) $input['files'] = $files;
+            foreach ($picErrors as $pe) $this->pictureErrors[] = "{$product->sku}: {$pe}";
+        }
 
         $data = $this->store->graphql(<<<'GQL'
             mutation PushProduct($input: ProductSetInput!) {
@@ -240,8 +251,6 @@ class PushProductsToShopify implements ShouldQueue
         if (filled($product->brand))       $input['vendor']          = $product->brand;
         if ($product->category?->name)     $input['productType']     = $product->category->name;
 
-        $files = $this->imageFiles($product);
-        if ($files) $input['files'] = $files;
 
         return $input;
     }
@@ -256,24 +265,6 @@ class PushProductsToShopify implements ShouldQueue
         if (filled($sku))     $v['sku']     = $sku;
         if (filled($barcode)) $v['barcode'] = $barcode;
         return $v;
-    }
-
-    /**
-     * Product images as public URLs Shopify can download. Skipped when the
-     * software runs on a local / private address Shopify cannot reach.
-     */
-    private function imageFiles(Product $product): array
-    {
-        $files = [];
-        foreach ($product->images as $img) {
-            $url  = $img->url;
-            $host = parse_url($url, PHP_URL_HOST) ?: '';
-            $private = $host === '' || $host === 'localhost' || str_ends_with($host, '.test') || str_ends_with($host, '.local')
-                || (filter_var($host, FILTER_VALIDATE_IP) && !filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE));
-            if ($private) continue;
-            $files[] = ['originalSource' => $url, 'contentType' => 'IMAGE', 'alt' => $product->name];
-        }
-        return $files;
     }
 
     private function link(Product $product, string $gid): void

@@ -241,6 +241,13 @@
                                             Check Access
                                         </button>
                                     </form>
+                                    <form action="{{ route('shopify.store.push-pictures', $store->id) }}" method="POST"
+                                          onsubmit="return confirm('Send pictures to products on {{ addslashes($store->shop_name) }} that have no picture on Shopify yet?')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Products already on Shopify without pictures get the software's pictures">
+                                            Send Pictures
+                                        </button>
+                                    </form>
                                     <form action="{{ route('shopify.store.fix-skus', $store->id) }}" method="POST"
                                           onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerText='Fixing… please wait';">
                                         @csrf
@@ -306,6 +313,8 @@
                             <td>
                                 @if(($log->direction ?? 'import') === 'push')
                                     <span class="badge bg-primary">Push ↑</span>
+                                @elseif($log->direction === 'pictures')
+                                    <span class="badge bg-info text-white">Pictures ↑</span>
                                 @else
                                     <span class="badge bg-light text-dark border">Import ↓</span>
                                 @endif

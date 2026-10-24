@@ -277,6 +277,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('store/{id}/push-preview', [ShopifyStoreController::class, 'pushPreview'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.push-preview');
+        Route::post('store/{id}/push-pictures', [ShopifyStoreController::class, 'pushPictures'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.push-pictures');
         Route::put('store/{id}/brands', [ShopifyStoreController::class, 'saveBrands'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.brands');

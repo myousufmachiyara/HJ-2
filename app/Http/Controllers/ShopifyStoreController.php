@@ -370,6 +370,19 @@ class ShopifyStoreController extends Controller
         return $this->dispatchPush($store, null);
     }
 
+    /** Send the software's pictures to products already on this store that have none on Shopify. */
+    public function pushPictures($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if (!$store->isConnected()) return back()->with('error', "{$store->shop_name} is not connected.");
+        $n = \App\Jobs\PushShopifyPictures::query($store)->count();
+        if (!$n) return back()->with('error', "{$store->shop_name}: no linked product has pictures in the software.");
+
+        $log = ShopifySyncLog::create(['shopify_store_id' => $store->id, 'status' => 'pending', 'direction' => 'pictures']);
+        \App\Jobs\PushShopifyPictures::dispatch($store, $log);
+        return back()->with('success', "{$store->shop_name}: checking {$n} product(s) — pictures are added only where the Shopify product has none. See Sync History.");
+    }
+
     /** Brands whose products belong to this store. */
     public function saveBrands(Request $request, $id)
     {
