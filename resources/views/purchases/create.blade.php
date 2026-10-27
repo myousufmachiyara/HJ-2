@@ -403,72 +403,80 @@
     });
 
     // 🔹 Barcode scanning flow
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) { e.preventDefault(); scanItemCode($(this)); }
+    });
+    // typed by hand + left the box: same lookup, only while the line is still empty
     $(document).on('blur', '.product-code', function () {
+      if (!$(this).closest('tr').find('.product-select').val()) scanItemCode($(this));
+    });
+    // a product code of an item with sizes: after the size is picked, go to the next line
+    $(document).on('select2:select', '#Purchase1Table .variation-select', function () {
       const row = $(this).closest('tr');
-      const barcode = $(this).val().trim();
-      if (!barcode) return;
+      if (row.data('scanNext')) { row.removeData('scanNext'); HJScan.nextLine('#Purchase1Table', addNewRow); }
+    });
+
+    // 🔹 Barcode scan: fill the line (qty 1; same item again = +1), then cursor to a new line
+    function scanItemCode($input) {
+      const row = $input.closest('tr');
+      const barcode = $input.val().trim();
+      if (!barcode || $input.data('scanBusy')) return;
+      $input.data('scanBusy', true);
 
       $.ajax({
         url: '/get-product-by-code/' + encodeURIComponent(barcode),
         method: 'GET',
         success: function (res) {
           if (!res || !res.success) {
-            alert(res.message || 'Product not found');
+            alert((res && res.message) || 'Product not found');
             row.find('.product-code').val('').focus();
-            row.find('.product-select').val('').trigger('change.select2');
-            row.find('.variation-select').html('<option value="">Select PANNA / Variation</option>')
-               .prop('disabled', false)
-               .trigger('change');
             return;
           }
 
+          const pid = res.type === 'variation' ? res.variation.product_id : res.product.id;
+          const vid = res.type === 'variation' ? res.variation.id : null;
+          const same = HJScan.findLine('#Purchase1Table', pid, vid, row);
+          if (same) { HJScan.bump(same); $input.val('').focus(); return; }
+
           const $productSelect = row.find('.product-select');
           const $variationSelect = row.find('.variation-select');
+          if (!$productSelect.find(`option[value="${pid}"]`).length) {
+            alert('Item found but it is not in the item list of this form.');
+            $input.val('').focus();
+            return;
+          }
+          const $qty = row.find('.quantity');
+          const setQty = () => { if (!(parseFloat($qty.val()) > 0)) $qty.val(1).trigger('change'); };
 
           if (res.type === 'variation') {
             const variation = res.variation;
-
             $productSelect.val(variation.product_id).trigger('change.select2');
-
             $variationSelect.html(`<option value="${variation.id}" selected>${variation.sku}</option>`)
                             .prop('disabled', false)
                             .trigger('change');
-
             row.find('.product-code').val(variation.barcode);
             row.find('input[name*="[barcode]"]').val(variation.barcode);
-
-            row.find('.quantity').focus();
-          }
-
-          if (res.type === 'product') {
+            setQty();
+            HJScan.nextLine('#Purchase1Table', addNewRow);
+          } else {
             const product = res.product;
-
-            if ($productSelect.find(`option[value="${product.id}"]`).length) {
-              $productSelect.val(product.id).trigger('change.select2');
-
-              row.find('.product-code').val(product.barcode);
-              row.find('input[name*="[barcode]"]').val(product.barcode);
-
-              loadVariations(row, product.id);
-
-              setTimeout(() => {
-                $variationSelect.select2('open');
-              }, 300);
-            } else {
-              alert("Product found but not in dropdown list.");
-              row.find('.product-code').val('').focus();
-              row.find('.product-select').val('').trigger('change.select2');
-              row.find('.variation-select').html('<option value="">Select PANNA / Variation</option>')
-                 .prop('disabled', false)
-                 .trigger('change');
-            }
+            $productSelect.val(product.id).trigger('change.select2');
+            row.find('.product-code').val(product.barcode);
+            row.find('input[name*="[barcode]"]').val(product.barcode);
+            setQty();
+            $.when(loadVariations(row, product.id)).always(function () {
+              const sizes = row.find('.variation-select option').filter(function () { return this.value; }).length;
+              if (sizes) { row.data('scanNext', true); row.find('.variation-select').select2('open'); }
+              else HJScan.nextLine('#Purchase1Table', addNewRow);
+            });
           }
         },
         error: function () {
           alert('Error fetching product details.');
-        }
+        },
+        complete: function () { $input.data('scanBusy', false); }
       });
-    });
+    }
 
     // 🔹 POS: Auto-add row when user presses Enter on Qty
     $(document).on('keypress', '.quantity', function (e) {
@@ -617,7 +625,7 @@
     const $variationSelect = row.find('.variation-select');
     $variationSelect.html('<option>Loading...</option>').prop('disabled', true);
 
-    $.get(`/product/${productId}/variations`, function (data) {
+    return $.get(`/product/${productId}/variations`, function (data) {
       let options = '<option value="" disabled selected>Select Variation</option>';
 
       if ((data.variation || []).length > 0) {

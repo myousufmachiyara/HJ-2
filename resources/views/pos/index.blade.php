@@ -679,6 +679,7 @@
       .product-panel { display: none; }
     }
   </style>
+  <script src="{{ asset('assets/js/scan-helper.js') }}?v=1"></script>
 </head>
 <body>
 
@@ -699,7 +700,7 @@
     {{-- Search --}}
     <div class="search-wrap">
       <i class="fas fa-barcode"></i>
-      <input type="text" class="search-input" id="searchInput"
+      <input type="text" class="search-input" id="searchInput" data-scan
              placeholder="Scan barcode or type to search... (F1 to focus)"
              autocomplete="off">
     </div>
@@ -1108,14 +1109,39 @@ document.getElementById('searchInput').addEventListener('input', function () {
     card.style.display = matchSearch && matchCat ? '' : 'none';
   });
 
-  // Auto-add if exact barcode match
-  if (q.length >= 5) {
-    const exact = PRODUCTS.find(p => p.barcode && p.barcode.toLowerCase() === q);
-    if (exact) {
-      this.value = '';
-      handleProductClick(exact.id);
-      cards.forEach(c => c.style.display = '');
+});
+
+// Scan (scanner Enter, or end of a scan detected by scan-helper.js) / Enter on a typed code:
+// exact barcode or SKU of a size or product → straight into the cart; the box is cleared
+// and keeps the cursor for the next scan.
+function findByCode(code) {
+  const c = code.trim().toUpperCase();
+  if (!c) return null;
+  for (const p of PRODUCTS) {
+    for (const v of p.variations) {
+      if ((v.barcode && v.barcode.toUpperCase() === c) || (v.sku && v.sku.toUpperCase() === c)) return { product: p, variation: v };
     }
+  }
+  for (const p of PRODUCTS) {
+    if ((p.barcode && p.barcode.toUpperCase() === c) || (p.sku && p.sku.toUpperCase() === c)) return { product: p, variation: null };
+  }
+  return null;
+}
+
+document.getElementById('searchInput').addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.which !== 13) return;
+  e.preventDefault();
+  const code = this.value;
+  if (!code.trim()) return;
+  const hit = findByCode(code);
+  this.value = '';
+  document.querySelectorAll('.product-card').forEach(c => c.style.display = '');
+  if (!hit) { notify('Not found: ' + code.trim()); this.focus(); return; }
+  if (hit.variation || hit.product.variations.length === 0) {
+    addToCart(hit.product, hit.variation);
+    this.focus();
+  } else {
+    handleProductClick(hit.product.id);   // product code of an item with sizes → choose the size
   }
 });
 
@@ -1162,6 +1188,7 @@ function openVariationModal(product) {
       const v = pendingProduct.variations[parseInt(this.dataset.varIdx)];
       addToCart(pendingProduct, v);
       closeModal('variationModal');
+      document.getElementById('searchInput').focus();
     });
   });
 

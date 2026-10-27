@@ -250,26 +250,78 @@
       }
     });
 
-    $(document).on('blur', '.product-code', function () {
-      const row     = $(this).closest('tr');
-      const barcode = $(this).val().trim();
-      if (!barcode) return;
-
-      $.get('/get-product-by-code/' + encodeURIComponent(barcode), function (res) {
-        if (!res?.success) { alert(res?.message || 'Not found'); return; }
-        if (res.type === 'variation') {
-          row.find('.product-select').val(res.variation.product_id).trigger('change.select2');
-          row.find('.variation-select')
-             .html(`<option value="${res.variation.id}" selected>${res.variation.sku}</option>`)
-             .trigger('change');
-          row.find('.quantity').focus();
-        }
-        if (res.type === 'product') {
-          row.find('.product-select').val(res.product.id).trigger('change.select2');
-          loadVariations(row, res.product.id);
-        }
-      });
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) { e.preventDefault(); scanItemCode($(this)); }
     });
+    // typed by hand + left the box: same lookup, only while the line is still empty
+    $(document).on('blur', '.product-code', function () {
+      if (!$(this).closest('tr').find('.product-select').val()) scanItemCode($(this));
+    });
+    // a product code of an item with sizes: after the size is picked, go to the next line
+    $(document).on('select2:select', '#ReturnTableBody .variation-select', function () {
+      const row = $(this).closest('tr');
+      if (row.data('scanNext')) { row.removeData('scanNext'); HJScan.nextLine('#ReturnTableBody', addNewRow); }
+    });
+
+    // 🔹 Barcode scan: fill the line (qty 1; same item again = +1), then cursor to a new line
+    function scanItemCode($input) {
+      const row = $input.closest('tr');
+      const barcode = $input.val().trim();
+      if (!barcode || $input.data('scanBusy')) return;
+      $input.data('scanBusy', true);
+
+      $.ajax({
+        url: '/get-product-by-code/' + encodeURIComponent(barcode),
+        method: 'GET',
+        success: function (res) {
+          if (!res || !res.success) {
+            alert((res && res.message) || 'Product not found');
+            row.find('.product-code').val('').focus();
+            return;
+          }
+
+          const pid = res.type === 'variation' ? res.variation.product_id : res.product.id;
+          const vid = res.type === 'variation' ? res.variation.id : null;
+          const same = HJScan.findLine('#ReturnTableBody', pid, vid, row);
+          if (same) { HJScan.bump(same); $input.val('').focus(); return; }
+
+          const $productSelect = row.find('.product-select');
+          const $variationSelect = row.find('.variation-select');
+          if (!$productSelect.find(`option[value="${pid}"]`).length) {
+            alert('Item found but it is not in the item list of this form.');
+            $input.val('').focus();
+            return;
+          }
+          const $qty = row.find('.quantity');
+          const setQty = () => { if (!(parseFloat($qty.val()) > 0)) $qty.val(1).trigger('change'); };
+
+          if (res.type === 'variation') {
+            const variation = res.variation;
+            $productSelect.val(variation.product_id).trigger('change.select2');
+            $variationSelect.html(`<option value="${variation.id}" selected>${variation.sku}</option>`)
+                            .prop('disabled', false)
+                            .trigger('change');
+
+            setQty();
+            HJScan.nextLine('#ReturnTableBody', addNewRow);
+          } else {
+            const product = res.product;
+            $productSelect.val(product.id).trigger('change.select2');
+
+            setQty();
+            $.when(loadVariations(row, product.id)).always(function () {
+              const sizes = row.find('.variation-select option').filter(function () { return this.value; }).length;
+              if (sizes) { row.data('scanNext', true); row.find('.variation-select').select2('open'); }
+              else HJScan.nextLine('#ReturnTableBody', addNewRow);
+            });
+          }
+        },
+        error: function () {
+          alert('Error fetching product details.');
+        },
+        complete: function () { $input.data('scanBusy', false); }
+      });
+    }
 
     $(document).on('keypress', '.quantity', function (e) {
       if (e.which === 13) {
@@ -392,7 +444,7 @@
   function loadVariations(row, productId, preselectId = null) {
     const $var = row.find('.variation-select');
     $var.html('<option>Loading...</option>').prop('disabled', true);
-    $.get(`/product/${productId}/variations`, function (data) {
+    return $.get(`/product/${productId}/variations`, function (data) {
       let opts = '<option value="">Select Variation</option>';
       (data.variation || []).forEach(v => { opts += `<option value="${v.id}">${v.sku}</option>`; });
       $var.html(opts).prop('disabled', (data.variation || []).length === 0);

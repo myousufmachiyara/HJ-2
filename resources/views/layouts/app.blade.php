@@ -28,6 +28,7 @@
 		<!-- Theme CSS -->
         <link rel="stylesheet" href="{{ asset('/assets/css/theme.css') }}" />
         <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="{{ asset('assets/js/scan-helper.js') }}?v=1"></script>
         <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 
 		<!-- Skin CSS -->

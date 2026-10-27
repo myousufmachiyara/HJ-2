@@ -43,9 +43,10 @@ class PosController extends Controller
                 'category_id' => $p->category_id,
                 'variations'  => $p->variations->map(function ($v) use ($p) {
                     return [
-                        'id'    => $v->id,
-                        'sku'   => $v->sku,
-                        'price' => $v->setRelation('product', $p)->salePrice(),   // size price, else product default
+                        'id'      => $v->id,
+                        'sku'     => $v->sku,
+                        'barcode' => $v->barcode,
+                        'price'   => $v->setRelation('product', $p)->salePrice(),   // size price, else product default
                     ];
                 })->values()->toArray(),
             ];

@@ -190,6 +190,10 @@
     });
 
     // 🔹 Barcode scan → ALWAYS add a new line (no increment, no dup-check)
+    $(document).on('change', '.production-select', function () {
+      $(this).next('.select2').find('.select2-selection').removeClass('border border-danger');
+    });
+
     $(document).on('scan:submit', '.product-code', function () {
       const $input  = $(this);
       const row     = $input.closest('tr');
@@ -246,8 +250,14 @@
     // Load variations (preselect scanned one), then load productions and open
     // the production picker so the user chooses which production this is against.
     loadVariationsThen(targetRow, productId, variationId, function () {
-      loadProductions(targetRow, productId);
-      setTimeout(() => targetRow.find('.production-select').select2('open'), 350);
+      // only one production for this item → chosen automatically; otherwise it is marked
+      // for picking later, so the cursor can stay on the next line's scan box
+      $.when(loadProductions(targetRow, productId)).always(function () {
+        const $prod = targetRow.find('.production-select');
+        const opts = $prod.find('option').filter(function () { return this.value; });
+        if (opts.length === 1) $prod.val(opts.val()).trigger('change');
+        else if (opts.length > 1) $prod.next('.select2').find('.select2-selection').addClass('border border-danger');
+      });
     });
 
     targetRow.find('.quantity').val(1);
@@ -388,7 +398,7 @@
     const varId = row.find('.variation-select').val() || null;
     $prod.html('<option value="">Loading...</option>');
 
-    $.get(`/product/${productId}/productions`, { variation_id: varId }, function (data) {
+    return $.get(`/product/${productId}/productions`, { variation_id: varId }, function (data) {
       let opts = '<option value="">Select Production</option>';
       const productions = Array.isArray(data) ? data : (data.productions || []);
       productions.forEach(p => {
