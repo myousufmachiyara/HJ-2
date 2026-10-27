@@ -300,11 +300,14 @@ class StockTransferController extends Controller
                 </tr>';
 
             $count = 0;
+            $totalQuantity = 0.0;
+
             foreach ($transfer->details as $item) {
                 $count++;
                 $product = $item->product; // main product
                 $variation = $item->variation; // may be null
                 $unit = $product->measurementUnit->shortcode ?? '-';
+                $totalQuantity += (float) $item->quantity;
 
                 $html .= '
                 <tr>
@@ -312,21 +315,37 @@ class StockTransferController extends Controller
                     <td>' . ($variation->barcode ?? $product->barcode ?? '-') . '</td>
                     <td>' . ($product->name ?? '-') . '</td>
                     <td>' . ($variation->sku ?? '-') . '</td>
-                    <td align="center">' .number_format($item->quantity, 2).' '.$unit.'</td>
+                    <td align="center">' . number_format($item->quantity, 2) . ' ' . $unit . '</td>
                 </tr>';
             }
-            $html .= '</table>';
+
+            // Summary row at the end of the products table.
+            $html .= '
+                <tr style="font-weight:bold;background-color:#f5f5f5;">
+                    <td colspan="4" align="right">Summary — Total Product Lines: ' . $count . '</td>
+                    <td align="center">Total Qty: ' . number_format($totalQuantity, 2) . '</td>
+                </tr>
+            </table>';
 
             $pdf->writeHTML($html, true, false, true, false, '');
 
-            $pdf->Ln(20);
-            $yPos = $pdf->GetY();
+            // Keep both signature blocks together and aligned on the same page.
+            $signatureBlockHeight = 22;
+            if ($pdf->GetY() + $signatureBlockHeight > $pdf->getPageHeight() - $pdf->getBreakMargin()) {
+                $pdf->AddPage();
+            }
+
+            $yPos = $pdf->GetY() + 10;
             $lineWidth = 40;
-            $pdf->Line(28, $yPos, 28 + $lineWidth, $yPos);
-            $pdf->Line(130, $yPos, 130 + $lineWidth, $yPos);
-            $pdf->SetXY(28, $yPos + 2);
+            $leftX = 28;
+            $rightX = 130;
+
+            $pdf->Line($leftX, $yPos, $leftX + $lineWidth, $yPos);
+            $pdf->Line($rightX, $yPos, $rightX + $lineWidth, $yPos);
+
+            $pdf->SetXY($leftX, $yPos + 2);
             $pdf->Cell($lineWidth, 6, 'Authorized By', 0, 0, 'C');
-            $pdf->SetXY(130, $yPos + 2);
+            $pdf->SetXY($rightX, $yPos + 2);
             $pdf->Cell($lineWidth, 6, 'Received By', 0, 0, 'C');
 
             $fileName = strtolower(str_replace(' ', '_', $docLabel)) . '_' . $transfer->id . '.pdf';
