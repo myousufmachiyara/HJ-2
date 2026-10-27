@@ -193,8 +193,6 @@ class StockTransferController extends Controller
             'qty'          => (float) $i['quantity'],
         ])->all();
 
-        Inventory::assertAvailable($transfer->from_location_id, $lines, $transfer);
-
         $from  = Location::findOrFail($transfer->from_location_id);
         $to    = Location::findOrFail($transfer->to_location_id);
         $value = 0.0;
