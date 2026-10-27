@@ -193,6 +193,9 @@ class StockTransferController extends Controller
             'qty'          => (float) $i['quantity'],
         ])->all();
 
+        // Stock movements do NOT check availability at the FROM location:
+        // whatever quantity is entered is moved (FROM may go negative).
+
         $from  = Location::findOrFail($transfer->from_location_id);
         $to    = Location::findOrFail($transfer->to_location_id);
         $value = 0.0;

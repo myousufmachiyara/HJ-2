@@ -104,6 +104,8 @@
 
 <script>
   let rowIndex = {{ count($lines) }};
+  let scanTimer = null;
+  const SCAN_IDLE_MS = 120, SCAN_CHAR_MS = 40;   // burst ends after 120ms; scanner = < 40ms per char
 
   $(function () {
     $('.select2-js').select2({ width: '100%', dropdownAutoWidth: true });
@@ -122,7 +124,30 @@
     $('#from_location_id').on('change', function () { $('#itemBody tr').each(function () { showAvailable($(this)); }); });
     $(document).on('input', '.quantity', recalc);
     $(document).on('click', '.remove-row', function () { if ($('#itemBody tr').length > 1) { $(this).closest('tr').remove(); recalc(); } });
-    $(document).on('keydown', '.product-code', function (e) { if (e.which === 13) { e.preventDefault(); scan($(this)); } });
+    $(document).on('keydown', '.product-code', function (e) {
+      if (e.which === 13) { e.preventDefault(); clearTimeout(scanTimer); scan($(this)); }
+    });
+    // Hardware scanners type the whole code in a burst (usually without Enter): scan automatically
+    // once the burst ends. Slow manual typing is left alone (finish it with Enter).
+    $(document).on('input', '.product-code', function () {
+      const $in = $(this), now = Date.now();
+      if (!$in.val()) { $in.removeData('t0'); return; }
+      if (!$in.data('t0')) $in.data('t0', now);
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(function () {
+        const len = ($in.val() || '').length, t0 = $in.data('t0') || now;
+        if (len >= 4 && (Date.now() - t0 - SCAN_IDLE_MS) / len < SCAN_CHAR_MS) scan($in);
+        else $in.removeData('t0');
+      }, SCAN_IDLE_MS);
+    });
+    // The auto-added blank line must not block saving
+    $('#itemTable').closest('form').on('submit', function () {
+      const $rows = $('#itemBody tr');
+      $rows.each(function () {
+        const $r = $(this);
+        if ($('#itemBody tr').length > 1 && !$r.find('.product-select').val() && !$r.find('.quantity').val()) $r.remove();
+      });
+    });
     $(document).on('keypress', '.quantity', function (e) { if (e.which === 13) { e.preventDefault(); nextScanRow(); } });
   });
 
@@ -136,7 +161,11 @@
     const $last = $('#itemBody tr').last();
     return $last.find('.product-select').val() ? addRow() : $last;
   }
-  function nextScanRow() { emptyOrNewRow().find('.product-code').focus(); }
+  function nextScanRow() {
+    const $input = emptyOrNewRow().find('.product-code');
+    $input.focus();
+    setTimeout(() => $input.focus(), 50);   // select2 / async loads can steal focus
+  }
   function findRow(pid, vid) {
     let m = null;
     $('#itemBody tr').each(function () {
@@ -162,16 +191,19 @@
     return row;
   }
   function scan($input) {
-    const code = $input.val().trim();
-    if (!code) return;
+    const code = ($input.val() || '').trim();
+    $input.removeData('t0');
+    if (!code || $input.data('busy')) return;
+    $input.data('busy', true).val('');
     $.get('/get-product-by-code/' + encodeURIComponent(code), function (res) {
-      $input.val('');
-      if (!res || !res.success) { alert((res && res.message) || 'Not found'); return; }
+      if (!res || !res.success) { alert((res && res.message) || 'Not found'); $input.val(code).focus(); return; }
       const pid = res.type === 'variation' ? res.variation.product_id : res.product.id;
       const vid = res.type === 'variation' ? res.variation.id : null;
       setLine(pid, vid, 1);
-      nextScanRow();
-    });
+      nextScanRow();                      // new empty line, cursor on its barcode field
+    }).fail(function () {
+      alert('Could not look up code ' + code); $input.val(code).focus();
+    }).always(function () { $input.data('busy', false); });
   }
   function loadVariations(row, productId, preselectId = null) {
     const $var = row.find('.variation-select');
