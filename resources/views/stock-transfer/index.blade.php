@@ -43,6 +43,7 @@
                 <td>
                   <a href="{{ route('stock_transfer.edit', $transfer->id) }}" class="text-primary"><i class="fas fa-edit"></i></a>
                   <a href="{{ route('stock_transfer.print', $transfer->id) }}" target="_blank" class="text-success"><i class="fas fa-print"></i></a>
+                  <a href="{{ route('stock_transfer.excel', $transfer->id) }}" class="text-success" title="Export Excel"><i class="fas fa-file-excel"></i></a>
                   <form action="{{ route('stock_transfer.destroy', $transfer->id) }}" method="POST" style="display:inline;">
                     @csrf
                     @method('DELETE')

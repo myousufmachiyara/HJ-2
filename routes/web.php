@@ -294,5 +294,5 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/sale-return/import-items', [ItemsImportController::class, 'saleReturn'])->middleware('check.permission:sale_return.create')->name('sale_return.import_items');
     Route::post('/stock-adjustments/import-items', [ItemsImportController::class, 'stockAdjustment'])->middleware('check.permission:stock_adjustments.create')->name('stock_adjustments.import_items');
     Route::post('/stock-transfer/import-items', [ItemsImportController::class, 'stockTransfer'])->middleware('check.permission:stock_transfer.create')->name('stock_transfer.import_items');
- 
+    Route::get('/stock_transfer/{id}/excel', [StockTransferController::class, 'exportExcel'])->middleware('check.permission:stock_transfer.print')->name('stock_transfer.excel');
 });
