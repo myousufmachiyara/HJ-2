@@ -380,7 +380,7 @@ class StockTransferController extends Controller
             $spreadsheet = new Spreadsheet();
             $ws = $spreadsheet->getActiveSheet();
             $ws->setTitle(substr($docLabel, 0, 31));
-            $ws->getSheetView()->setShowGridLines(false);
+            $ws->setShowGridlines(false);
             $ws->getParent()->getDefaultStyle()->getFont()->setName('Helvetica')->setSize(10);
 
             // Column widths mirror the PDF table (7% / 18% / 32% / 31% / 12%)
