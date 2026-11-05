@@ -13,6 +13,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 /**
  * Stock Movement between any two locations:
@@ -353,6 +360,149 @@ class StockTransferController extends Controller
         } catch (\Exception $e) {
             Log::error('Failed to print stock transfer: '.$e->getMessage());
             return back()->with('error', 'Failed to generate stock transfer PDF.');
+        }
+    }
+
+    // Excel export — same layout as the PDF above (logo, info box, banner, items table, summary, signatures)
+    public function exportExcel($id)
+    {
+        try {
+            $transfer = StockTransfer::with(['fromLocation', 'toLocation', 'details.product.measurementUnit', 'details.variation'])
+                ->findOrFail($id);
+
+            $docLabel   = match ($transfer->type) {
+                'dc'        => 'Delivery Challan',
+                'return_dc' => 'Return Delivery Challan',
+                default     => 'Stock Transfer',
+            };
+            $refCaption = in_array($transfer->type, ['dc', 'return_dc'], true) ? 'Challan #' : 'Transfer #';
+
+            $spreadsheet = new Spreadsheet();
+            $ws = $spreadsheet->getActiveSheet();
+            $ws->setTitle(substr($docLabel, 0, 31));
+            $ws->getSheetView()->setShowGridLines(false);
+            $ws->getParent()->getDefaultStyle()->getFont()->setName('Helvetica')->setSize(10);
+
+            // Column widths mirror the PDF table (7% / 18% / 32% / 31% / 12%)
+            foreach (['A' => 7, 'B' => 16, 'C' => 32, 'D' => 28, 'E' => 24] as $col => $w) {
+                $ws->getColumnDimension($col)->setWidth($w);
+            }
+
+            $thin = ['borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['rgb' => '000000']]]];
+
+            // ── Logo (top-left) ──────────────────────────────────────
+            $logoPath = public_path('assets/img/hj-logo.jpg');
+            if (file_exists($logoPath)) {
+                $logo = new Drawing();
+                $logo->setPath($logoPath);
+                $logo->setCoordinates('A1');
+                $logo->setOffsetX(2);
+                $logo->setOffsetY(4);
+                $logo->setResizeProportional(true);
+                $logo->setWidth(190);
+                $logo->setWorksheet($ws);
+            }
+
+            // ── Info table (top-right): Ref # / Date / From / To ─────
+            $info = [
+                [$refCaption, $transfer->id],
+                ['Date',      \Carbon\Carbon::parse($transfer->date)->format('d/m/Y')],
+                ['From',      $transfer->fromLocation->name ?? '-'],
+                ['To',        $transfer->toLocation->name ?? '-'],
+            ];
+            $r = 1;
+            foreach ($info as [$label, $value]) {
+                $ws->setCellValue("D{$r}", $label);
+                $ws->setCellValueExplicit("E{$r}", (string) $value, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $ws->getRowDimension($r)->setRowHeight(20);
+                $r++;
+            }
+            $ws->getStyle('D1:E4')->applyFromArray($thin);
+            $ws->getStyle('D1:D4')->getFont()->setBold(true);
+            $ws->getStyle('D1:E4')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+            $ws->getStyle('E1:E4')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+
+            // ── Banner (document title) ──────────────────────────────
+            $bannerRow = 6;
+            $ws->mergeCells("A{$bannerRow}:C{$bannerRow}");
+            $ws->setCellValue("A{$bannerRow}", $docLabel);
+            $ws->getStyle("A{$bannerRow}:C{$bannerRow}")->applyFromArray([
+                'fill'      => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '17365D']],
+                'font'      => ['color' => ['rgb' => 'FFFFFF'], 'size' => 12],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER],
+            ]);
+            $ws->getStyle("D{$bannerRow}:E{$bannerRow}")->getBorders()->getBottom()->setBorderStyle(Border::BORDER_THIN);
+            $ws->getRowDimension($bannerRow)->setRowHeight(24);
+
+            // ── Items table ──────────────────────────────────────────
+            $headRow = 8;
+            foreach (['A' => 'S.No', 'B' => 'Code', 'C' => 'Name', 'D' => 'Variation', 'E' => 'Quantity'] as $col => $h) {
+                $ws->setCellValue("{$col}{$headRow}", $h);
+            }
+            $ws->getStyle("A{$headRow}:E{$headRow}")->applyFromArray($thin);
+            $ws->getStyle("A{$headRow}:E{$headRow}")->getFont()->setBold(true);
+            $ws->getStyle("A{$headRow}:E{$headRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F5F5F5');
+
+            $row = $headRow + 1;
+            $count = 0;
+            $totalQuantity = 0.0;
+
+            foreach ($transfer->details as $item) {
+                $count++;
+                $product   = $item->product;
+                $variation = $item->variation;
+                $unit      = $product->measurementUnit->shortcode ?? '-';
+                $totalQuantity += (float) $item->quantity;
+
+                $ws->setCellValue("A{$row}", $count);
+                $ws->setCellValueExplicit("B{$row}", (string) ($variation->barcode ?? $product->barcode ?? '-'), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $ws->setCellValue("C{$row}", $product->name ?? '-');
+                $ws->setCellValueExplicit("D{$row}", (string) ($variation->sku ?? '-'), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $ws->setCellValue("E{$row}", (float) $item->quantity);
+                // Shows "12.00 pcs" like the PDF, but stays a real number in Excel
+                $ws->getStyle("E{$row}")->getNumberFormat()->setFormatCode('#,##0.00 "' . str_replace('"', '', $unit) . '"');
+                $row++;
+            }
+
+            $lastDataRow = $row - 1;
+            $ws->getStyle("A{$headRow}:E{$lastDataRow}")->applyFromArray($thin);
+            $ws->getStyle("A{$headRow}:E{$lastDataRow}")->getAlignment()
+                ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+            $ws->getStyle("C" . ($headRow + 1) . ":D{$lastDataRow}")->getAlignment()->setWrapText(true);
+
+            // ── Summary row ──────────────────────────────────────────
+            $ws->mergeCells("A{$row}:D{$row}");
+            $ws->setCellValue("A{$row}", 'Summary — Total Product Lines: ' . $count);
+            $ws->setCellValue("E{$row}", $totalQuantity);
+            $ws->getStyle("E{$row}")->getNumberFormat()->setFormatCode('"Total Qty: "#,##0.00');
+            $ws->getStyle("A{$row}:E{$row}")->applyFromArray($thin);
+            $ws->getStyle("A{$row}:E{$row}")->getFont()->setBold(true);
+            $ws->getStyle("A{$row}:E{$row}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F5F5F5');
+            $ws->getStyle("A{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+            $ws->getStyle("E{$row}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // ── Signature lines ──────────────────────────────────────
+            $sigRow = $row + 4;
+            foreach (['C' => 'Authorized By', 'E' => 'Received By'] as $col => $label) {
+                $ws->setCellValue("{$col}{$sigRow}", $label);
+                $ws->getStyle("{$col}{$sigRow}")->getBorders()->getTop()->setBorderStyle(Border::BORDER_THIN);
+                $ws->getStyle("{$col}{$sigRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            }
+
+            // ── Print setup: A4 portrait, fit to one page wide, 10 mm margins ──
+            $ws->getPageSetup()->setPaperSize(PageSetup::PAPERSIZE_A4)->setOrientation(PageSetup::ORIENTATION_PORTRAIT)
+               ->setFitToWidth(1)->setFitToHeight(0)->setFitToPage(true);
+            $ws->getPageMargins()->setTop(0.4)->setBottom(0.4)->setLeft(0.4)->setRight(0.4);
+            $ws->getPageSetup()->setHorizontalCentered(true);
+
+            $fileName = strtolower(str_replace(' ', '_', $docLabel)) . '_' . $transfer->id . '.xlsx';
+
+            return response()->streamDownload(function () use ($spreadsheet) {
+                (new Xlsx($spreadsheet))->save('php://output');
+            }, $fileName, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        } catch (\Exception $e) {
+            Log::error('Failed to export stock transfer Excel: ' . $e->getMessage());
+            return back()->with('error', 'Failed to generate stock transfer Excel.');
         }
     }
 }
