@@ -21,7 +21,7 @@ use Illuminate\Support\Str;
  *   - Created as DRAFT on Shopify, with title, description, brand (vendor),
  *     category (product type), sizes (options/variants), each size's selling price,
  *     compare-at price, SKU and barcode, plus product images when the server is public.
- *   - Stock is NOT sent.
+ *   - Stock is NOT sent, but "Track quantity" is ticked on every size.
  *   - Shopify is read once (every SKU/barcode). A product whose size SKU or barcode is already
  *     there is only LINKED (no duplicate created); brands of another store are never sent;
  *     bulk "Push New" sends only brands listed for this store. See App\Services\ShopifyPushPlan.
@@ -260,6 +260,8 @@ class PushProductsToShopify implements ShouldQueue
         $v = [
             'optionValues' => $optionValues,
             'price'        => number_format($price, 2, '.', ''),
+            // "Track quantity" ticked on every size (stock itself is not sent)
+            'inventoryItem' => ['tracked' => true],
         ];
         if ($compare !== null && (float) $compare > 0) $v['compareAtPrice'] = number_format((float) $compare, 2, '.', '');
         if (filled($sku))     $v['sku']     = $sku;
