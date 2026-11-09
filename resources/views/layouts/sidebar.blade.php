@@ -114,7 +114,7 @@
                 <li><a class="nav-link" href="{{ route('stock_transfer.index') }}">Stock Movement</a></li>
               @endcan
               @can('stock_adjustments.index')
-                <li><a class="nav-link" href="{{ route('stock_adjustments.index') }}">Stock Adjustment / Opening</a></li>
+                <li><a class="nav-link" href="{{ route('stock_adjustments.index') }}">Stock Adjustment</a></li>
               @endcan
               @can('reports.inventory')
                 <li><a class="nav-link" href="{{ route('reports.inventory') }}?tab=LOC">Stock by Location</a></li>
