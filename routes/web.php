@@ -80,6 +80,17 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
     Route::get('/products/bulk-price',         [\App\Http\Controllers\BulkPriceController::class, 'index'])->name('bulk-price.index')->middleware('check.permission:products.edit');
     Route::post('/products/bulk-price/export', [\App\Http\Controllers\BulkPriceController::class, 'updateAndExport'])->name('bulk-price.export')->middleware('check.permission:products.edit');
+    // ── LAAM weekly sale settlement (upload LAAM ledger export) ───────
+    Route::prefix('laam_invoices')->name('laam_invoices.')->group(function () {
+        $c = \App\Http\Controllers\LaamInvoiceController::class;
+        Route::get('/',            [$c, 'index'])  ->middleware('check.permission:laam_invoices.index')->name('index');
+        Route::get('/create',      [$c, 'create']) ->middleware('check.permission:laam_invoices.create')->name('create');
+        Route::post('/parse',      [$c, 'parse'])  ->middleware('check.permission:laam_invoices.create')->name('parse');
+        Route::post('/',           [$c, 'store'])  ->middleware('check.permission:laam_invoices.create')->name('store');
+        Route::get('/{id}',        [$c, 'show'])   ->whereNumber('id')->middleware('check.permission:laam_invoices.index')->name('show');
+        Route::delete('/{id}',     [$c, 'destroy'])->whereNumber('id')->middleware('check.permission:laam_invoices.delete')->name('destroy');
+    });
+
     Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template')->middleware('check.permission:products.create');
     Route::get('/products/bulk-export',          [ProductController::class, 'bulkExport'])->name('products.bulk-export')->middleware('check.permission:products.create');
     Route::post('/products/cleanup-formula-import', [ProductController::class, 'cleanupFormulaProducts'])->name('products.cleanup-formula')->middleware('check.permission:products.delete');

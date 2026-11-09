@@ -253,7 +253,7 @@ class InventoryReportController extends Controller
                 ->selectRaw('product_id, variation_id, SUM(qty) AS qty, MAX(date) AS last_move')
                 ->havingRaw('SUM(qty) > 0')->get();
 
-            $lastSale = StockLedger::where('source_type', SaleInvoice::class)->where('qty', '<', 0)
+            $lastSale = StockLedger::whereIn('source_type', [SaleInvoice::class, \App\Models\LaamInvoice::class])->where('qty', '<', 0)
                 ->when($locationId, fn ($q) => $q->where('location_id', $locationId))
                 ->groupBy('product_id', 'variation_id')
                 ->selectRaw("product_id, variation_id, MAX(date) AS d")->get()

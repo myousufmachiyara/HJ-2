@@ -162,6 +162,7 @@ class AccountsReportController extends Controller
             \App\Models\PurchaseReturn::class      => 'return_no',
             \App\Models\ProductionReceiving::class => 'grn_no',
             \App\Models\SaleInvoice::class         => 'invoice_no',
+            \App\Models\LaamInvoice::class         => 'invoice_no',
             \App\Models\StockAdjustment::class     => 'adj_no',
             \App\Models\PdcCheque::class           => 'pdc_no',
         ];

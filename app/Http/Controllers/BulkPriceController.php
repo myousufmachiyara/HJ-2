@@ -168,6 +168,21 @@ class BulkPriceController extends Controller
             ->get()
             ->keyBy(fn ($x) => $x->product_id . '-' . ($x->variation_id ?: 0));
 
+        // weekly LAAM settlements count as sales too
+        $soldLaam = DB::table('laam_invoice_items as li')
+            ->join('laam_invoices as lh', 'lh.id', '=', 'li.laam_invoice_id')
+            ->whereNull('lh.deleted_at')
+            ->when($r->input('sold_scope') !== 'all', fn ($q) => $q->where('lh.location_id', $locationId))
+            ->when($r->filled('date_from'), fn ($q) => $q->whereDate('lh.date', '>=', $r->date_from))
+            ->when($r->filled('date_to'),   fn ($q) => $q->whereDate('lh.date', '<=', $r->date_to))
+            ->groupBy('li.product_id', 'li.variation_id')
+            ->selectRaw('li.product_id, li.variation_id, SUM(li.quantity) AS sold')
+            ->get();
+        foreach ($soldLaam as $x) {
+            $k = $x->product_id . '-' . ($x->variation_id ?: 0);
+            if (isset($sold[$k])) $sold[$k]->sold += $x->sold; else $sold[$k] = $x;
+        }
+
         $products   = Product::with('category')->whereIn('id', $stock->pluck('product_id')->unique())->get()->keyBy('id');
         $variations = ProductVariation::whereIn('id', $stock->pluck('variation_id')->filter()->unique())->get()->keyBy('id');
 

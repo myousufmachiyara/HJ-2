@@ -83,6 +83,7 @@ class DatabaseSeeder extends Seeder
             // HJ flow
             'stock_adjustments',
             'pdc_cheques',
+            'laam_invoices',
         ];
 
         $actions = ['index', 'create', 'edit', 'delete', 'print'];

@@ -164,7 +164,7 @@
           @endif
 
           {{-- ── Sale ── --}}
-          @if(auth()->user()->can('sale_invoices.index') || auth()->user()->can('sale_return.index'))
+          @if(auth()->user()->can('sale_invoices.index') || auth()->user()->can('sale_return.index') || auth()->user()->can('laam_invoices.index'))
           <li class="nav-parent">
             <a class="nav-link" href="#">
               <i class="fa fa-file-invoice-dollar"></i>
@@ -173,6 +173,9 @@
             <ul class="nav nav-children">
               @can('sale_invoices.index')
                 <li><a class="nav-link" href="{{ route('sale_invoices.index') }}">Invoices</a></li>
+              @endcan
+              @can('laam_invoices.index')
+                <li><a class="nav-link" href="{{ route('laam_invoices.index') }}">LAAM Sales</a></li>
               @endcan
               @can('sale_return.index')
                 <li><a class="nav-link" href="{{ route('sale_return.index') }}">Returns</a></li>

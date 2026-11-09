@@ -210,6 +210,7 @@ class Inventory
             \App\Models\ProductionReceiving::class => $qty < 0 ? 'Fabric Consumed' : 'FG Receiving',
             \App\Models\StockTransfer::class       => $qty < 0 ? 'Movement Out' : 'Movement In',
             \App\Models\SaleInvoice::class         => str_starts_with((string) $remarks, 'POS') ? 'POS Sale' : 'Sale',
+            \App\Models\LaamInvoice::class         => 'LAAM Sale',
             \App\Models\SaleReturn::class          => 'Sale Return',
             \App\Models\StockAdjustment::class     => str_starts_with((string) $remarks, 'Opening') ? 'Opening Stock'
                                                        : (str_starts_with((string) $remarks, 'Physical') ? 'Stock Count' : 'Adjustment'),
@@ -225,6 +226,7 @@ class Inventory
             \App\Models\PurchaseReturn::class      => 'return_no',
             \App\Models\ProductionReceiving::class => 'grn_no',
             \App\Models\SaleInvoice::class         => 'invoice_no',
+            \App\Models\LaamInvoice::class         => 'invoice_no',
             \App\Models\StockAdjustment::class     => 'adj_no',
         ];
         $out = [];

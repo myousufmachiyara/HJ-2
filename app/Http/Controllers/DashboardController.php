@@ -200,7 +200,26 @@ class DashboardController extends Controller
                 ->where('s.date', '>=', $from)
                 ->groupBy('i.product_id', 'i.variation_id')
                 ->selectRaw('i.product_id, i.variation_id, SUM(i.quantity) AS qty, SUM(i.quantity * i.sale_price) AS amount')
-                ->orderByDesc('qty')->limit(15)->get();
+                ->get();
+
+            // weekly LAAM settlements (Sale → LAAM Sales) count as LAAM sales too
+            $soldLaam = DB::table('laam_invoice_items as i')
+                ->join('laam_invoices as s', 's.id', '=', 'i.laam_invoice_id')
+                ->whereNull('s.deleted_at')
+                ->whereIn('s.account_id', $accounts->pluck('id'))
+                ->where('s.date', '>=', $from)
+                ->groupBy('i.product_id', 'i.variation_id')
+                ->selectRaw('i.product_id, i.variation_id, SUM(i.quantity) AS qty, SUM(i.realized_sales) AS amount')
+                ->get();
+
+            $sold = $sold->concat($soldLaam)
+                ->groupBy(fn ($r) => $r->product_id . '-' . ($r->variation_id ?? 0))
+                ->map(fn ($g) => (object) [
+                    'product_id'   => $g[0]->product_id,
+                    'variation_id' => $g[0]->variation_id,
+                    'qty'          => $g->sum('qty'),
+                    'amount'       => $g->sum('amount'),
+                ])->sortByDesc('qty')->take(15)->values();
 
             $products   = Product::whereIn('id', $sold->pluck('product_id'))->get(['id', 'name', 'sku'])->keyBy('id');
             $variations = ProductVariation::withTrashed()->whereIn('id', $sold->pluck('variation_id')->filter())->get(['id', 'sku'])->keyBy('id');

@@ -28,9 +28,14 @@ class HjSetup
         ['207010', 'Other Liabilities',   8,  'Post-Dated Cheques Payable',            'liability'],
         ['301010', 'Owner Capital',       9,  'Opening Stock Equity',                  'equity'],
         ['502010', 'Operating Expenses',  14, 'Stock Adjustment (Shortage / Excess)',  'expenses'],
+        // LAAM weekly settlement
+        ['502020', 'Operating Expenses',  14, 'Marketplace Platform Fee (LAAM)',       'expense'],
+        ['502021', 'Operating Expenses',  14, 'PRA Tax (Marketplace)',                 'expense'],
+        ['105010', 'Other Current Assets', 5, 'Sales Tax Withheld by Marketplace',     'asset'],
+        ['105011', 'Other Current Assets', 5, 'Income Tax Withheld by Marketplace',    'asset'],
     ];
 
-    public const MODULES = ['stock_adjustments', 'pdc_cheques'];
+    public const MODULES = ['stock_adjustments', 'pdc_cheques', 'laam_invoices'];
 
     public static function run(): void
     {
