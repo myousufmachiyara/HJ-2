@@ -95,6 +95,9 @@
               @if(auth()->user()->can('shopify_stores.index'))
                 <li><a class="nav-link" href="{{ route('shopify.settings') }}">Shopify Stores</a></li>
             @endif
+              @can('shopify_stores.edit')
+                <li><a class="nav-link" href="{{ route('shopify.prices') }}">Push Prices to Shopify</a></li>
+              @endcan
             </ul>
           </li>
           @endif

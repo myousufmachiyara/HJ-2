@@ -313,6 +313,8 @@
                             <td>
                                 @if(($log->direction ?? 'import') === 'push')
                                     <span class="badge bg-primary">Push ↑</span>
+                                @elseif($log->direction === 'prices')
+                                    <span class="badge bg-success">Prices ↑</span>
                                 @elseif($log->direction === 'pictures')
                                     <span class="badge bg-info text-white">Pictures ↑</span>
                                 @else

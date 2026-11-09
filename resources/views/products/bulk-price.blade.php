@@ -16,6 +16,9 @@
         @if(session('error'))
             <div class="alert alert-danger">{{ session('error') }}</div>
         @endif
+        @if(session('success'))
+            <div class="alert alert-success">{{ session('success') }}</div>
+        @endif
 
         {{-- ───────────── Filters ───────────── --}}
         <form method="GET" action="{{ route('bulk-price.index') }}" class="row g-2 align-items-end mb-4">
@@ -172,6 +175,9 @@
             </div>
 
             <div class="text-end">
+                <button type="submit" name="push" value="1" class="btn btn-info text-white">
+                    <i class="fab fa-shopify"></i> Save prices &amp; Push to Shopify
+                </button>
                 <button type="submit" class="btn btn-success">
                     <i class="fa fa-file-excel"></i> Save prices &amp; Export Excel
                 </button>
@@ -252,7 +258,11 @@
             }));
 
         if (!items.length) { e.preventDefault(); alert('Please tick at least one product.'); return; }
-        if (!confirm('Save the new prices for ' + items.length + ' product(s) and export to Excel?')) { e.preventDefault(); return; }
+        const pushing = e.submitter && e.submitter.name === 'push';
+        const ask = pushing
+            ? 'Save the new prices for ' + items.length + ' product(s) AND send selling + compare-at prices to Shopify? This changes the live store.'
+            : 'Save the new prices for ' + items.length + ' product(s) and export to Excel?';
+        if (!confirm(ask)) { e.preventDefault(); return; }
         document.getElementById('payload').value = JSON.stringify(items);
     });
 })();

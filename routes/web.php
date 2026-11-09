@@ -298,6 +298,17 @@ Route::middleware(['auth'])->group(function () {
         Route::post('store/{id}/fix-skus', [ShopifyStoreController::class, 'fixSkus'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.fix-skus');
+
+        // Push selling + discount (compare-at) prices of chosen SKUs / barcodes to Shopify
+        Route::get('prices', [\App\Http\Controllers\ShopifyPriceController::class, 'index'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('prices');
+        Route::post('prices/check', [\App\Http\Controllers\ShopifyPriceController::class, 'check'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('prices.check');
+        Route::post('prices/push', [\App\Http\Controllers\ShopifyPriceController::class, 'push'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('prices.push');
     });
 
     // ── Bulk Excel import (items only) ─────────────────────────────────

@@ -111,6 +111,21 @@ class BulkPriceController extends Controller
             }
         });
 
+        // "Save & Push to Shopify": same saved prices, sent to Shopify instead of downloading the sheet
+        if ($request->boolean('push')) {
+            $res = app(\App\Services\ShopifyPricePush::class)->dispatch(array_map(fn ($i) => [
+                'product_id'   => (int) $i['product_id'],
+                'variation_id' => !empty($i['variation_id']) ? (int) $i['variation_id'] : null,
+            ], $items));
+
+            $msg = 'Prices saved for ' . count($items) . ' item(s). ';
+            if ($res['queued']) {
+                return back()->with('success', $msg . "Sending {$res['queued']} to Shopify — " . implode(', ', $res['stores'])
+                    . ($res['skipped'] ? "; {$res['skipped']} skipped (not on Shopify)" : '') . '. Progress is in Shopify Stores → Sync History.');
+            }
+            return back()->with('error', $msg . 'None of them is on a connected Shopify store, so nothing was sent.');
+        }
+
         return Excel::download(
             new VariantPriceExport($sheet),
             'variant-price-update-' . now()->format('Ymd-His') . '.xlsx'
