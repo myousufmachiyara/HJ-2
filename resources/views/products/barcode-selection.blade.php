@@ -6,7 +6,7 @@
 <div class="card shadow-sm">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h4 class="card-title">Product Barcoding</h4>
-        <input type="text" id="searchBox" class="form-control w-25" placeholder="Search product by name...">
+        <input type="text" id="searchBox" class="form-control w-25" placeholder="Search name / SKU / barcode...">
     </div>
 
     <div class="card-body">
@@ -29,15 +29,23 @@
             </div>
         @endif
 
-        <form action="{{ route('products.generateBarcodes') }}" method="POST">
+        <form action="{{ route('products.generateBarcodes') }}" method="POST" id="barcodeForm">
             @csrf
-            <div class="text-end mb-2">
+            <input type="hidden" name="items_json" id="itemsJson">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <strong id="selCount">0</strong> ticked
+                    <button type="button" class="btn btn-sm btn-link" id="clearSel">Clear</button>
+                    <small class="text-muted ms-2">Ticks and quantities are kept while you search or change pages.</small>
+                </div>
+                <div class="text-end">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-upc-scan"></i> Generate Barcodes (Browser Print)
                 </button>
                 <button type="submit" formaction="{{ route('products.generateZplLabels') }}" class="btn btn-outline-primary">
                     <i class="bi bi-printer"></i> Print on Zebra (ZPL)
                 </button>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-bordered table-hover align-middle" id="productsTable">
@@ -51,41 +59,76 @@
                             <th>Quantity</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        @foreach($variations as $variation)
-                            @if($variation->product)   {{-- skip orphaned variations --}}
-                                <tr>
-                                    <td>
-                                        <input type="checkbox" name="selected_variations[]" value="{{ $variation->id }}">
-                                    </td>
-                                    <td class="product-name">{{ $variation->product->name }}</td>
-                                    <td>{{ $variation->sku }}</td>
-                                    <td>{{ $variation->barcode ?? $variation->product->barcode ?? '-' }}</td>
-                                    <td>{{ number_format($variation->salePrice(), 2) }}</td>
-                                    <td>
-                                        <input type="number" name="quantity[{{ $variation->id }}]" value="1" min="1" class="form-control form-control-sm">
-                                    </td>
-                                </tr>
-                            @endif
-                        @endforeach
-                    </tbody>
+                    <tbody></tbody>
                 </table>
             </div>
         </form>
     </div>
 </div>
 
-{{-- Search Filter Script --}}
+{{-- Server-side table: one page of variations at a time --}}
 <script>
-    document.getElementById('searchBox').addEventListener('keyup', function() {
-        let filter = this.value.toLowerCase();
-        let rows = document.querySelectorAll('#productsTable tbody tr');
+$(function () {
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-        rows.forEach(row => {
-            let productName = row.querySelector('.product-name').textContent.toLowerCase();
-            row.style.display = productName.includes(filter) ? '' : 'none';
-        });
+    // id → quantity, for every ticked row (kept across pages / searches)
+    const picked = new Map();
+    // quantities typed on rows that are not ticked (so they are still there when ticked later)
+    const qtyDraft = new Map();
+    const qtyOf = id => picked.has(id) ? picked.get(id) : (qtyDraft.get(id) || 1);
+
+    const table = $('#productsTable').DataTable({
+        serverSide: true,
+        processing: true,
+        ajax: @json(route('products.barcode.data')),
+        order: [],
+        pageLength: 50,
+        lengthMenu: [25, 50, 100, 200],
+        dom: 'lrtip',                        // our own search box is above
+        columns: [
+            { data: null, orderable: false, render: (d, t, r) => `<input type="checkbox" class="pick" value="${r.id}">` },
+            { data: 'product', render: d => esc(d) },
+            { data: 'sku',     render: d => esc(d) },
+            { data: 'barcode', render: d => esc(d) },
+            { data: 'price',   orderable: false, className: 'text-end' },
+            { data: null, orderable: false, render: (d, t, r) =>
+                `<input type="number" min="1" value="${qtyOf(String(r.id))}" class="form-control form-control-sm qty" data-id="${r.id}">` },
+        ],
+        drawCallback: function () {
+            $('#productsTable input.pick').each(function () { this.checked = picked.has(this.value); });
+        }
     });
+
+    function count() { $('#selCount').text(picked.size); }
+
+    $('#productsTable').on('change', 'input.pick', function () {
+        const id = this.value;
+        if (this.checked) picked.set(id, Math.max(1, parseInt($(this).closest('tr').find('input.qty').val()) || 1));
+        else picked.delete(id);
+        count();
+    });
+
+    $('#productsTable').on('input change', 'input.qty', function () {
+        const id = String($(this).data('id'));
+        const q  = Math.max(1, parseInt(this.value) || 1);
+        if (picked.has(id)) picked.set(id, q); else qtyDraft.set(id, q);
+    });
+
+    $('#clearSel').on('click', function () { picked.clear(); $('#productsTable input.pick').prop('checked', false); count(); });
+
+    // search box → server-side search (debounced)
+    let timer;
+    $('#searchBox').on('input', function () {   // typing, pasting and autofill all count
+        clearTimeout(timer);
+        timer = setTimeout(() => table.search(this.value).draw(), 400);
+    });
+
+    // submit the ticked rows as ONE field ({"id": qty}); works for both print buttons
+    $('#barcodeForm').on('submit', function (e) {
+        if (!picked.size) { e.preventDefault(); alert('Tick at least one item first.'); return; }
+        $('#itemsJson').val(JSON.stringify(Object.fromEntries(picked)));
+    });
+});
 </script>
 
 @endsection

@@ -67,6 +67,9 @@
             <i class="fab fa-shopify text-success fa-lg"></i>
             <strong>Shopify:</strong>
             <span><span id="pushCount">0</span> ticked</span>
+            <input type="hidden" name="product_ids_csv" id="pushIds">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="pushAllMatching" title="Tick every product that can be pushed and matches the search">Tick all matching</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="pushClear">Clear</button>
             @if($shopifyStores->count() > 1)
               <select name="store_id" class="form-select form-select-sm" style="width:auto">
                 @foreach($shopifyStores as $st)<option value="{{ $st->id }}">{{ $st->shop_name }}</option>@endforeach
@@ -95,49 +98,7 @@
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              @foreach($products as $index => $product)
-              @php $canPush = $product->item_type === 'fg' && $product->is_active && !$product->shopify_product_id; @endphp
-              <tr>
-                @if($shopifyStores->isNotEmpty())
-                  <td>@if($canPush)<input type="checkbox" class="push-check" value="{{ $product->id }}">@endif</td>
-                @endif
-                <td>{{ $index + 1 }}</td>
-                <td>
-                  @if($product->images->first())
-                    <img src="{{ $product->images->first()->url }}" width="60" height="60" loading="lazy" style="object-fit:cover;border-radius:5px;"
-                         alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'text-muted small', textContent: 'Image missing'}))">
-                  @else
-                    <span class="text-muted">No Image</span>
-                  @endif
-                </td>
-                <td>{{ $product->name }}</td>
-                <td>{{ $product->brand ?? '-' }}</td>
-                <td>{{ $product->sku }}</td>
-                <td>{{ $product->category->name ?? '-' }}</td>
-                <td>
-                  @if($product->shopify_product_id)
-                    <span class="badge bg-success" title="{{ $product->shopifyStore?->shop_name }}">On Shopify</span>
-                  @elseif($canPush)
-                    <span class="badge bg-light text-dark border">Not pushed</span>
-                  @else
-                    <span class="text-muted">—</span>
-                  @endif
-                </td>
-                <td>
-                  <a href="{{ route('products.edit', $product->id) }}" class="text-primary"><i class="fa fa-edit"></i></a>
-                  @if($product->item_type === 'raw')
-                    <a href="{{ route('panna-consumption.index') }}" class="text-success" title="Fabric consumption per category & PANNA"><i class="fas fa-sitemap"></i></a>
-                  @endif
-                  <form method="POST" action="{{ route('products.destroy', $product->id) }}" style="display:inline-block">
-                    @csrf
-                    @method('DELETE')
-                    <button class="btn btn-link p-0 m-0 text-danger" onclick="return confirm('Delete this product?')" title="Delete"><i class="fa fa-trash-alt"></i></button>
-                  </form>
-                </td>
-              </tr>
-              @endforeach
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
       </div>
@@ -186,28 +147,90 @@
 
 <script>
   $(document).ready(function () {
+    const hasPush  = {{ $shopifyStores->isNotEmpty() ? 'true' : 'false' }};
+    const csrf     = @json(csrf_token());
+    const dataUrl  = @json(route('products.data'));
+    const panna    = @json(route('panna-consumption.index'));
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // Ticks live in this set, so they survive paging / searching / sorting.
+    const ticked = new Set();
+
+    const columns = [];
+    if (hasPush) columns.push({ data: null, orderable: false, searchable: false,
+      render: (d, t, r) => r.can_push ? `<input type="checkbox" class="push-check" value="${r.id}">` : '' });
+    columns.push(
+      { data: null, orderable: false, searchable: false,
+        render: (d, t, r, m) => m.settings._iDisplayStart + m.row + 1 },
+      { data: 'image', orderable: false, render: (d) => d
+          ? `<img src="${esc(d)}" width="60" height="60" loading="lazy" style="object-fit:cover;border-radius:5px;" alt=""
+                  onerror="this.replaceWith(Object.assign(document.createElement('span'), {className: 'text-muted small', textContent: 'Image missing'}))">`
+          : '<span class="text-muted">No Image</span>' },
+      { data: 'name',     render: d => esc(d) },
+      { data: 'brand',    render: d => esc(d || '-') },
+      { data: 'sku',      render: d => esc(d) },
+      { data: 'category', render: d => esc(d || '-') },
+      { data: 'shopify',  render: (d, t, r) => d === 'on'
+          ? `<span class="badge bg-success" title="${esc(r.store)}">On Shopify</span>`
+          : d === 'pending' ? '<span class="badge bg-light text-dark border">Not pushed</span>' : '<span class="text-muted">—</span>' },
+      { data: null, orderable: false, searchable: false, render: (d, t, r) => `
+          <a href="${esc(r.edit_url)}" class="text-primary"><i class="fa fa-edit"></i></a>
+          ${r.is_raw ? `<a href="${esc(panna)}" class="text-success" title="Fabric consumption per category & PANNA"><i class="fas fa-sitemap"></i></a>` : ''}
+          <form method="POST" action="${esc(r.delete_url)}" style="display:inline-block">
+            <input type="hidden" name="_token" value="${esc(csrf)}"><input type="hidden" name="_method" value="DELETE">
+            <button class="btn btn-link p-0 m-0 text-danger" onclick="return confirm('Delete this product?')" title="Delete"><i class="fa fa-trash-alt"></i></button>
+          </form>` }
+    );
+
     const productTable = $('#cust-datatable-default').DataTable({
-      "pageLength": 100
+      serverSide: true,
+      processing: true,
+      ajax: dataUrl,
+      columns: columns,
+      order: [],                      // oldest first until a column header is clicked
+      pageLength: 100,
+      lengthMenu: [25, 50, 100, 200],
+      searchDelay: 400,
+      language: { search: 'Search name / SKU / brand / barcode:' },
+      drawCallback: function () {
+        $('input.push-check').each(function () { this.checked = ticked.has(this.value); });
+        syncHeader();
+      }
     });
 
-    // ── Push to Shopify: ticks on every page of the table count ──
-    function pushTicked() { return productTable.$('input.push-check:checked'); }
+    // ── Push to Shopify: ticks are kept across pages ──
     function refreshPush() {
-      const n = pushTicked().length;
-      $('#pushCount').text(n);
-      $('#pushBtn').prop('disabled', n === 0);
+      $('#pushCount').text(ticked.size);
+      $('#pushBtn').prop('disabled', ticked.size === 0);
     }
-    $(document).on('change', 'input.push-check', refreshPush);
+    function syncHeader() {
+      const boxes = $('input.push-check');
+      $('#pushAll').prop('checked', boxes.length > 0 && boxes.filter(':checked').length === boxes.length);
+      refreshPush();
+    }
+    $(document).on('change', 'input.push-check', function () {
+      this.checked ? ticked.add(this.value) : ticked.delete(this.value);
+      syncHeader();
+    });
+    // header box = every pushable product on THIS page
     $('#pushAll').on('change', function () {
-      productTable.$('input.push-check').prop('checked', this.checked);
+      const on = this.checked;
+      $('input.push-check').each(function () { this.checked = on; on ? ticked.add(this.value) : ticked.delete(this.value); });
       refreshPush();
     });
+    // every pushable product matching the current search, across all pages
+    $('#pushAllMatching').on('click', function () {
+      const btn = $(this).prop('disabled', true);
+      $.get(dataUrl, { ids_only: 1, search: { value: productTable.search() } })
+        .done(r => { (r.ids || []).forEach(id => ticked.add(String(id))); $('input.push-check').each(function () { this.checked = ticked.has(this.value); }); syncHeader(); })
+        .always(() => btn.prop('disabled', false));
+    });
+    $('#pushClear').on('click', function () { ticked.clear(); $('input.push-check').prop('checked', false); syncHeader(); });
+
     $('#shopifyPushForm').on('submit', function () {
-      const ids = pushTicked().map(function () { return this.value; }).get();
-      if (!ids.length) return false;
-      if (!confirm('Push ' + ids.length + ' product(s) to Shopify as Draft?')) return false;
-      $(this).find('input[name="product_ids[]"]').remove();
-      ids.forEach(id => $(this).append(`<input type="hidden" name="product_ids[]" value="${id}">`));
+      if (!ticked.size) return false;
+      if (!confirm('Push ' + ticked.size + ' product(s) to Shopify as Draft?')) return false;
+      $('#pushIds').val(Array.from(ticked).join(','));
       return true;
     });
 

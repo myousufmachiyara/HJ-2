@@ -40,7 +40,15 @@ class InventoryReportController extends Controller
 
         [$productId, $variationId] = $this->parseItem($selected);
 
-        $allProducts = Product::with('variations')->orderBy('name')->get();
+        // Only the item picked in the filter is loaded (the dropdown searches the catalogue by AJAX —
+        // it used to hold every product and every size, ~16,000 options).
+        $selectedItem = null;
+        if ($productId && ($selProduct = Product::select('id', 'name', 'sku')->find($productId))) {
+            $selVar = $variationId ? \App\Models\ProductVariation::where('product_id', $productId)->whereKey($variationId)->first(['id', 'sku']) : null;
+            $selectedItem = $selVar
+                ? ['id' => "{$selProduct->id}-{$selVar->id}", 'text' => "{$selProduct->name} — {$selVar->sku}"]
+                : ['id' => (string) $selProduct->id,           'text' => "{$selProduct->name} ({$selProduct->sku}) — all sizes"];
+        }
 
         $itemLedger       = collect();
         $stockInHand      = collect();
@@ -91,7 +99,7 @@ class InventoryReportController extends Controller
                     'date' => $from, 'type' => 'Opening Balance', 'document' => '',
                     'description' => 'Brought forward (before ' . Carbon::parse($from)->format('d-M-Y') . ')',
                     'location' => $locationId ? ($locations->firstWhere('id', $locationId)->name ?? '') : 'All locations',
-                    'product' => $allProducts->firstWhere('id', $productId)->name ?? '', 'variation' => null,
+                    'product' => $selProduct->name ?? '', 'variation' => null,
                     'qty_in' => max(0, $opening), 'qty_out' => max(0, -$opening), 'rate' => 0, 'balance' => $balance,
                 ]);
             }
@@ -282,9 +290,15 @@ class InventoryReportController extends Controller
                 ->selectRaw('product_id, variation_id, SUM(qty) AS qty')->get()
                 ->mapWithKeys(fn ($r) => [$r->product_id . '-' . ($r->variation_id ?? 0) => (float) $r->qty]);
 
-            foreach ($allProducts as $product) {
+            // only products that have a reorder level set (not the whole catalogue)
+            $reorderProducts = Product::with('variations:id,product_id,sku')
+                ->where('reorder_level', '>', 0)
+                ->when($itemType, fn ($q) => $q->where('item_type', $itemType))
+                ->orderBy('name')->get();
+
+            foreach ($reorderProducts as $product) {
                 $level = (float) ($product->reorder_level ?? 0);
-                if ($level <= 0 || ($itemType && $product->item_type !== $itemType)) continue;
+                if ($level <= 0) continue;
 
                 $vars = $product->variations->isNotEmpty() ? $product->variations : collect([(object) ['id' => null, 'sku' => null]]);
                 foreach ($vars as $var) {
@@ -334,7 +348,7 @@ class InventoryReportController extends Controller
         }
 
         return view('reports.inventory_reports', [
-            'products'         => $allProducts,
+            'selectedItem'     => $selectedItem,
             'tab'              => $tab,
             'itemLedger'       => $itemLedger,
             'stockInHand'      => $stockInHand,

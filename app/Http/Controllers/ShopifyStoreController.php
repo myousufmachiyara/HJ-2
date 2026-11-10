@@ -446,6 +446,11 @@ class ShopifyStoreController extends Controller
     /** Products list: push the ticked products to the chosen store. */
     public function pushSelected(Request $request)
     {
+        // the products list sends its ticks (kept across pages) as "1,2,3" in one field
+        if ($request->filled('product_ids_csv')) {
+            $request->merge(['product_ids' => array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $request->product_ids_csv)))))]);
+        }
+
         $request->validate([
             'store_id'      => 'required|exists:shopify_stores,id',
             'product_ids'   => 'required|array|min:1',

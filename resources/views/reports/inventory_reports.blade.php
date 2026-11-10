@@ -58,14 +58,9 @@
         <div class="row g-2 align-items-end">
           <div class="col-md-3">
             <label>Product / Variation</label>
-            <select name="item_id" class="form-control select2-js">
-              <option value="">-- Select a product --</option>
-              @foreach($products as $product)
-                <option value="{{ $product->id }}" {{ request('item_id') == $product->id ? 'selected' : '' }}>{{ $product->name }} ({{ $product->sku }}) — all sizes</option>
-                @foreach($product->variations as $var)
-                  <option value="{{ $product->id }}-{{ $var->id }}" {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>&nbsp;&nbsp;↳ {{ $var->sku }}</option>
-                @endforeach
-              @endforeach
+            <select name="item_id" class="form-control item-search" data-placeholder="-- Select a product --">
+              <option value=""></option>
+              @if($selectedItem)<option value="{{ $selectedItem['id'] }}" selected>{{ $selectedItem['text'] }}</option>@endif
             </select>
           </div>
           <div class="col-md-3">
@@ -165,14 +160,9 @@
         <div class="row g-2 align-items-end">
           <div class="col-md-3">
             <label>Product / Variation</label>
-            <select name="item_id" class="form-control select2-js">
-              <option value="">-- All Products --</option>
-              @foreach($products as $product)
-                <option value="{{ $product->id }}" {{ request('item_id') == $product->id ? 'selected' : '' }}>{{ $product->name }} ({{ $product->sku }}) — all sizes</option>
-                @foreach($product->variations as $var)
-                  <option value="{{ $product->id }}-{{ $var->id }}" {{ request('item_id') == $product->id.'-'.$var->id ? 'selected' : '' }}>&nbsp;&nbsp;↳ {{ $var->sku }}</option>
-                @endforeach
-              @endforeach
+            <select name="item_id" class="form-control item-search" data-placeholder="-- All Products --">
+              <option value=""></option>
+              @if($selectedItem)<option value="{{ $selectedItem['id'] }}" selected>{{ $selectedItem['text'] }}</option>@endif
             </select>
           </div>
           <div class="col-md-3">
@@ -787,6 +777,24 @@
 <script>
   $(document).ready(function () {
     $('.select2-js').select2({ width: '100%' });
+
+    // Product / size picker: searches the catalogue as you type (25 products at a time)
+    $('.item-search').each(function () {
+      $(this).select2({
+        width: '100%',
+        allowClear: true,
+        placeholder: $(this).data('placeholder'),
+        ajax: {
+          url: @json(route('products.item-search')),
+          dataType: 'json',
+          delay: 250,
+          cache: true,
+          data: function (p) { return { q: p.term || '', page: p.page || 1 }; },
+          processResults: function (d) { return d; }
+        },
+        templateSelection: function (d) { return d.full || d.text; }
+      });
+    });
     $('#ilTable, #srTable, #locTable, #strTable, #nmiTable, #rolTable').DataTable({
       pageLength: 100,
       order: [],

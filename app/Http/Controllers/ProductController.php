@@ -27,7 +27,7 @@ class ProductController extends Controller
 {
     public function index()
     {
-        $products   = Product::with('category', 'variations', 'images', 'shopifyStore')->get();
+        // The table loads its rows page by page through data() — never the whole catalogue at once.
         $categories = ProductCategory::all();
         // stores products can be pushed to (Push to Shopify button)
         $shopifyStores = auth()->user()?->can('shopify_stores.edit')
@@ -37,7 +37,7 @@ class ProductController extends Controller
         $formulaProducts = Product::where('sku', 'like', '=%')->orWhere('name', 'like', '%[=%')->count();
         // last bulk import: keep tracking it if still running, show its result if just finished
         $lastImport = ProductImport::where('created_at', '>', now()->subDay())->latest('id')->first();
-        return view('products.index', compact('products', 'categories', 'shopifyStores', 'formulaProducts', 'lastImport'));
+        return view('products.index', compact('categories', 'shopifyStores', 'formulaProducts', 'lastImport'));
     }
 
     /**
@@ -79,10 +79,199 @@ class ProductController extends Controller
 
     public function barcodeSelection()
     {
-        $variations = ProductVariation::with('product')
-            ->whereHas('product')
-            ->get();
-        return view('products.barcode-selection', compact('variations'));
+        // rows are fetched page by page by barcodeData()
+        return view('products.barcode-selection');
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Fast lists: one page at a time, searched / sorted in the database
+    // ─────────────────────────────────────────────────────────────────
+
+    /** Escape % _ \ so a typed search is matched literally. */
+    private function likeEscape(string $s): string
+    {
+        return addcslashes($s, '%_\\');
+    }
+
+    /**
+     * Every typed word must match (AND); a word matches when ANY of the columns contains it.
+     * $contains: matched anywhere ("%word%"), $startsWith: matched from the start ("word%", can use the index).
+     */
+    private function searchWords($query, string $term, array $contains, array $startsWith = []): void
+    {
+        foreach (preg_split('/\s+/', trim($term), -1, PREG_SPLIT_NO_EMPTY) as $word) {
+            $any = $this->likeEscape($word);
+            $query->where(function ($w) use ($any, $contains, $startsWith) {
+                foreach ($contains as $col)   $w->orWhere($col, 'like', '%' . $any . '%');
+                foreach ($startsWith as $col) $w->orWhere($col, 'like', $any . '%');
+            });
+        }
+    }
+
+    /** DataTables paging values, with a safety cap. */
+    private function pageWindow(Request $request, int $max = 200): array
+    {
+        $length = (int) $request->input('length', 100);
+        $length = $length < 1 ? 100 : min($length, $max);
+        return [max(0, (int) $request->input('start', 0)), $length];
+    }
+
+    /** Products list — server-side DataTables feed (one page of rows, never the whole catalogue). */
+    public function data(Request $request)
+    {
+        $term = trim((string) data_get($request->input('search'), 'value', ''));
+
+        $filtered = Product::query();
+        if ($term !== '') {
+            foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $word) {
+                $any = $this->likeEscape($word);
+                $filtered->where(function ($w) use ($any) {
+                    $w->where('products.name', 'like', "%{$any}%")
+                      ->orWhere('products.sku', 'like', "%{$any}%")
+                      ->orWhere('products.brand', 'like', "%{$any}%")
+                      ->orWhere('products.barcode', 'like', "{$any}%")
+                      ->orWhereHas('variations', fn ($v) => $v->where(
+                          fn ($x) => $x->where('sku', 'like', "%{$any}%")->orWhere('barcode', 'like', "{$any}%")
+                      ));
+                });
+            }
+        }
+
+        // "Tick all matching" on the Shopify bar: only the ids that can be pushed
+        if ($request->boolean('ids_only')) {
+            return response()->json([
+                'ids' => (clone $filtered)->where('item_type', 'fg')->where('is_active', 1)->whereNull('shopify_product_id')->pluck('id'),
+            ]);
+        }
+
+        $total       = Product::count();
+        $filteredCnt = (clone $filtered)->count();
+
+        // sorting — only columns that make sense; default = oldest first (as before)
+        $column = (string) $request->input('columns.' . (int) $request->input('order.0.column', -1) . '.data', '');
+        $dir    = $request->input('order.0.dir') === 'desc' ? 'desc' : 'asc';
+        match ($column) {
+            'name'     => $filtered->orderBy('products.name', $dir),
+            'brand'    => $filtered->orderBy('products.brand', $dir),
+            'sku'      => $filtered->orderBy('products.sku', $dir),
+            'shopify'  => $filtered->orderBy('products.shopify_product_id', $dir),
+            'category' => $filtered->orderBy(ProductCategory::select('name')->whereColumn('product_categories.id', 'products.category_id'), $dir),
+            default    => null,
+        };
+        $filtered->orderBy('products.id');
+
+        [$start, $length] = $this->pageWindow($request);
+        $page = $filtered->with(['category:id,name', 'shopifyStore:id,shop_name', 'images'])->skip($start)->take($length)->get();
+
+        return response()->json([
+            'draw'            => (int) $request->input('draw'),
+            'recordsTotal'    => $total,
+            'recordsFiltered' => $filteredCnt,
+            'data'            => $page->map(fn ($p) => [
+                'id'        => $p->id,
+                'name'      => $p->name,
+                'brand'     => $p->brand,
+                'sku'       => $p->sku,
+                'category'  => $p->category?->name,
+                'image'     => $p->images->first()?->url,
+                'shopify'   => $p->shopify_product_id ? 'on' : (($p->item_type === 'fg' && $p->is_active) ? 'pending' : 'none'),
+                'store'     => $p->shopifyStore?->shop_name,
+                'can_push'  => $p->item_type === 'fg' && $p->is_active && !$p->shopify_product_id,
+                'is_raw'    => $p->item_type === 'raw',
+                'edit_url'  => route('products.edit', $p->id),
+                'delete_url'=> route('products.destroy', $p->id),
+            ])->values(),
+        ]);
+    }
+
+    /** Barcode page — server-side DataTables feed of variations. */
+    public function barcodeData(Request $request)
+    {
+        $term = trim((string) data_get($request->input('search'), 'value', ''));
+
+        $base = ProductVariation::query()
+            ->join('products', 'products.id', '=', 'product_variations.product_id')
+            ->whereNull('products.deleted_at');                       // skip variations of deleted products
+
+        $filtered = clone $base;
+        if ($term !== '') {
+            $this->searchWords($filtered, $term,
+                ['products.name', 'product_variations.sku', 'products.sku'],
+                ['product_variations.barcode', 'products.barcode']);
+        }
+
+        $total       = (clone $base)->count();
+        $filteredCnt = (clone $filtered)->count();
+
+        $column = (string) $request->input('columns.' . (int) $request->input('order.0.column', -1) . '.data', '');
+        $dir    = $request->input('order.0.dir') === 'desc' ? 'desc' : 'asc';
+        match ($column) {
+            'product' => $filtered->orderBy('products.name', $dir),
+            'sku'     => $filtered->orderBy('product_variations.sku', $dir),
+            'barcode' => $filtered->orderByRaw('COALESCE(product_variations.barcode, products.barcode) ' . $dir),
+            default   => null,
+        };
+        $filtered->orderBy('product_variations.id');
+
+        [$start, $length] = $this->pageWindow($request);
+        $page = $filtered->select([
+                'product_variations.id', 'product_variations.sku', 'product_variations.barcode', 'product_variations.selling_price',
+                'products.name as product_name', 'products.barcode as product_barcode', 'products.selling_price as product_price',
+            ])->skip($start)->take($length)->get();
+
+        return response()->json([
+            'draw'            => (int) $request->input('draw'),
+            'recordsTotal'    => $total,
+            'recordsFiltered' => $filteredCnt,
+            'data'            => $page->map(fn ($r) => [
+                'id'      => $r->id,
+                'product' => $r->product_name,
+                'sku'     => $r->sku,
+                'barcode' => $r->barcode ?? $r->product_barcode ?? '-',
+                // size price, else the product's default (same rule as ProductVariation::salePrice)
+                'price'   => number_format((float) ($r->selling_price ?? $r->product_price ?? 0), 2),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * Select2 search feed for item dropdowns (reports): products + their sizes, 25 products per page.
+     * Replaces a <select> that used to hold every product and every size at once.
+     */
+    public function itemSearch(Request $request)
+    {
+        $term = trim((string) $request->input('q', ''));
+        $page = max(1, (int) $request->input('page', 1));
+        $per  = 25;
+
+        $q = Product::query()->orderBy('name')->orderBy('id');
+        if ($term !== '') {
+            foreach (preg_split('/\s+/', $term, -1, PREG_SPLIT_NO_EMPTY) as $word) {
+                $any = $this->likeEscape($word);
+                $q->where(function ($w) use ($any) {
+                    $w->where('name', 'like', "%{$any}%")
+                      ->orWhere('sku', 'like', "%{$any}%")
+                      ->orWhere('barcode', 'like', "{$any}%")
+                      ->orWhereHas('variations', fn ($v) => $v->where(
+                          fn ($x) => $x->where('sku', 'like', "%{$any}%")->orWhere('barcode', 'like', "{$any}%")
+                      ));
+                });
+            }
+        }
+
+        $products = $q->with('variations:id,product_id,sku')->skip(($page - 1) * $per)->take($per + 1)->get(['id', 'name', 'sku']);
+        $more     = $products->count() > $per;
+
+        return response()->json([
+            'results'    => $products->take($per)->map(fn ($p) => [
+                'text'     => "{$p->name} ({$p->sku})",
+                'children' => collect([['id' => (string) $p->id, 'text' => 'All sizes', 'full' => "{$p->name} ({$p->sku}) — all sizes"]])
+                    ->concat($p->variations->sortBy('id')->map(fn ($v) => [
+                        'id' => "{$p->id}-{$v->id}", 'text' => "↳ {$v->sku}", 'full' => "{$p->name} — {$v->sku}",
+                    ]))->values(),
+            ])->values(),
+            'pagination' => ['more' => $more],
+        ]);
     }
 
     /**
@@ -95,6 +284,18 @@ class ProductController extends Controller
      */
     private function collectBarcodeRows(Request $request, &$validationRedirect = null): ?array
     {
+        // The page sends its ticked rows as one JSON field ({"id": qty, ...}) so a big selection
+        // never runs into PHP's max_input_vars limit.
+        if ($request->filled('items_json')) {
+            $picked = json_decode((string) $request->input('items_json'), true);
+            if (is_array($picked)) {
+                $request->merge([
+                    'selected_variations' => array_map('intval', array_keys($picked)),
+                    'quantity'            => array_combine(array_map('intval', array_keys($picked)), array_map('intval', array_values($picked))),
+                ]);
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             'selected_variations'   => 'required|array|min:1',
             'selected_variations.*' => 'exists:product_variations,id',
@@ -112,9 +313,11 @@ class ProductController extends Controller
 
         $rows = [];
 
+        $found = ProductVariation::with('product')->whereIn('id', $request->selected_variations)->get()->keyBy('id');
+
         foreach ($request->selected_variations as $variationId) {
             $qty       = max(1, (int)($request->quantity[$variationId] ?? 1));
-            $variation = ProductVariation::with('product')->findOrFail($variationId);
+            $variation = $found[$variationId] ?? ProductVariation::with('product')->findOrFail($variationId);
 
             // Manual barcode: variation barcode first, then fall back to the
             // product's own barcode, then SKU as a last resort.

@@ -62,6 +62,9 @@ Route::middleware(['auth'])->group(function () {
     // ── Product helpers ───────────────────────────────────────────────
     Route::get('/products/details',                     [ProductController::class, 'details'])->name('products.receiving');
     Route::get('/products/barcode-selection',           [ProductController::class, 'barcodeSelection'])->name('products.barcode.selection');
+    Route::get('/products/data',                        [ProductController::class, 'data'])->name('products.data')->middleware('check.permission:products.index');
+    Route::get('/products/barcode-data',                [ProductController::class, 'barcodeData'])->name('products.barcode.data');
+    Route::get('/products/item-search',                 [ProductController::class, 'itemSearch'])->name('products.item-search');
     Route::post('/products/generate-multiple-barcodes', [ProductController::class, 'generateMultipleBarcodes'])->name('products.generateBarcodes');
     Route::post('/products/generate-zpl-labels',         [ProductController::class, 'generateZplLabels'])->name('products.generateZplLabels');
     Route::get('/get-product-by-code/{barcode}',        [ProductController::class, 'getByBarcode'])->name('product.byBarcode');
