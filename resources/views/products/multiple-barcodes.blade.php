@@ -37,7 +37,7 @@
             // Each bar is also pulled in by a hair ($inset) on both sides so
             // it fills exactly its own dots whichever way the printer driver
             // rounds an edge that sits right on a dot boundary.
-            $inset = 0.12;
+            $inset = 0;   // bars are exactly their own dots; extra darkness comes from the Darkness box (stroke below)
             $width = $modules * $dotsPerModule;
             $x     = intdiv($labelDots - $width, 2);   // centred, whole dots
             $path  = '';
@@ -236,6 +236,24 @@
                          0 var(--dot) 0 #000,
                          var(--dot) var(--dot) 0 #000;
         }
+
+        /* ── INK DARKNESS — barcode bars ──────────────────────────
+           Thermal heads under-burn thin bars. The Darkness box thickens
+           every bar by a fraction of ONE printer dot (outline stroke,
+           measured in real dots so it is the same on paper at any zoom):
+             Normal     – exact bar widths
+             Dark       – each bar 0.6 dot wider   (default)
+             Extra dark – each bar 1.2 dots wider
+           The gaps shrink by the same amount, so keep it at "Dark"
+           unless the bars are still pale after raising the printer's
+           own Darkness/Density setting. */
+        .barcode-label .barcode-bars path {
+            stroke: #000;
+            vector-effect: non-scaling-stroke;
+            stroke-width: 0;
+        }
+        html[data-ink="1"] .barcode-label .barcode-bars path { stroke-width: calc(var(--dot) * 0.6); }
+        html[data-ink="2"] .barcode-label .barcode-bars path { stroke-width: calc(var(--dot) * 1.2); }
 
         .no-print {
             text-align: center;
