@@ -131,10 +131,10 @@
             font-size: 7px;
         }
 
-        .barcode-label .brand {
-            font-size: 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
+        /* variation SKU, shown under the item name (replaces the old brand line) */
+        .barcode-label .sku {
+            font-size: 8px;
+            letter-spacing: 0.2px;
             color: #000;
         }
 
@@ -363,10 +363,10 @@
 
 @foreach($barcodes as $barcode)
     <div class="barcode-label">
-        @if(!empty($barcode['brand']))
-            <small class="brand">{{ $barcode['brand'] }}</small>
-        @endif
         <strong>{{ $barcode['product'] }}</strong>
+        @if(!empty($barcode['sku']))
+            <small class="sku">{{ $barcode['sku'] }}</small>
+        @endif
         @if(!empty($barcode['variation']))
             <small>{{ $barcode['variation'] }}</small>
         @endif

@@ -462,7 +462,8 @@ class ProductController extends Controller
         $barcodeBlock  = $barHeight + 24; // + the printer's own interpretation-line text under the bars
         $gap           = 4;
 
-        $brand     = $this->zplTruncate($this->zplEscape(strtoupper($row['brand'] ?? '')), (int) floor($contentWidth / ($brandFont * 0.6)));
+        $brand     = $this->zplTruncate($this->zplEscape($row['sku'] ?? ''),   // variation SKU (replaces the brand line)
+             (int) floor($contentWidth / ($brandFont * 0.6)));
         $product   = $this->zplTruncate($this->zplEscape($row['product'] ?? ''), (int) floor($contentWidth / ($productFont * 0.6)));
         $variation = $this->zplTruncate($this->zplEscape($row['variation'] ?? ''), (int) floor($contentWidth / ($variationFont * 0.6)));
         $barcodeText = $this->zplEscape($row['barcodeText'] ?? '');
