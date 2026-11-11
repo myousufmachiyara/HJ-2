@@ -80,7 +80,17 @@ class ProductController extends Controller
     public function barcodeSelection()
     {
         // rows are fetched page by page by barcodeData()
-        return view('products.barcode-selection');
+        // labels whose barcode is too long to scan on the 2in label (see ShortBarcode)
+        $longCount = count(\App\Services\ShortBarcode::longOnes());
+        return view('products.barcode-selection', compact('longCount'));
+    }
+
+    /** Give every variation whose barcode is too long for the label a short numeric barcode. */
+    public function shortenBarcodes()
+    {
+        $n = \App\Services\ShortBarcode::shortenAll();
+        return redirect()->route('products.barcode.selection')
+            ->with('success', "{$n} barcode(s) changed to short numeric codes. SKUs are unchanged. Reprint those labels.");
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -900,7 +910,8 @@ class ProductController extends Controller
         $typed = trim((string) $typed);
         if ($typed !== '') return $typed;
 
-        return ProductVariation::withTrashed()->where('barcode', $sku)->exists() ? null : $sku;
+        // = SKU, unless the SKU is too long to scan on the label → short numeric code
+        return \App\Services\ShortBarcode::forNewVariation($sku);
     }
 
     /** A typed price, or the fallback when the box was left blank. */

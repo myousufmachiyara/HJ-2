@@ -395,6 +395,11 @@ class ProcessShopifyImport implements ShouldQueue
         ];
 
         if ($existing) {
+            // keep a short numeric label barcode the software gave this size; a re-import must not put the long one back
+            if (filled($existing->barcode) && $existing->barcode !== $barcode
+                && !\App\Services\ShortBarcode::fits((string) $barcode) && \App\Services\ShortBarcode::fits($existing->barcode)) {
+                $data['barcode'] = $existing->barcode;
+            }
             $existing->update($data);
             return $existing;
         }

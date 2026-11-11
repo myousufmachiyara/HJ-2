@@ -117,7 +117,7 @@ class ImportProductChunkJob implements ShouldQueue
                 $variationBarcode = trim($rowData['variation barcode'] ?? '');
                 if ($variationBarcode === '' || strtolower($variationBarcode) === 'nan') {
                     $variationBarcode = $existingVariation ? $existingVariation->barcode
-                        : (ProductVariation::withTrashed()->where('barcode', $variationSku)->exists() ? null : $variationSku);
+                        : \App\Services\ShortBarcode::forNewVariation($variationSku);
                 }
                 $variation = ProductVariation::updateOrCreate(
                     ['sku' => $variationSku],
