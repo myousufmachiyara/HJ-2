@@ -389,17 +389,18 @@ class ProcessShopifyImport implements ShouldQueue
             'product_id'         => $productId,
             'shopify_variant_id' => (string) $v['id'],
             'sku'            => $sku,
-            'barcode'        => $barcode,
+            'barcode'        => $barcode,   // '' = Shopify has none (handled below)
             'selling_price'  => $v['price'] ?? 0,
             'stock_quantity' => $v['inventory_quantity'] ?? 0,
         ];
 
+        // Shopify has no barcode: keep the size's own barcode; a brand-new size gets a random unique number
+        if (blank($data['barcode'])) {
+            $data['barcode'] = $existing ? $existing->barcode : \App\Services\BarcodeGenerator::generate();
+            if (blank($data['barcode'])) $data['barcode'] = \App\Services\BarcodeGenerator::generate();
+        }
+
         if ($existing) {
-            // keep a short numeric label barcode the software gave this size; a re-import must not put the long one back
-            if (filled($existing->barcode) && $existing->barcode !== $barcode
-                && !\App\Services\ShortBarcode::fits((string) $barcode) && \App\Services\ShortBarcode::fits($existing->barcode)) {
-                $data['barcode'] = $existing->barcode;
-            }
             $existing->update($data);
             return $existing;
         }
@@ -492,12 +493,12 @@ class ProcessShopifyImport implements ShouldQueue
      * Barcode: strips scientific notation (e.g. 6.94E+11 → 694000000000),
      * falls back to a store-scoped unique value.
      */
-    private function resolveBarcode(array $v): string
+    private function resolveBarcode(array $v): string   // '' = Shopify has none
     {
         $raw = trim($v['barcode'] ?? '');
 
         if ($raw === '') {
-            return $this->resolveVariantSku($v);   // no barcode on Shopify → same as SKU (as in the software)
+            return '';   // no barcode on Shopify → a new size gets a random number, an existing size keeps its own
         }
 
         // Only expand genuine scientific notation (e.g. "6.94E+11" from an

@@ -84,7 +84,7 @@
     </div>
     <div class="col-md-2 mb-3">
       <label>Barcode</label>
-      <input type="text" name="barcode" class="form-control" value="{{ $val('barcode') }}" placeholder="{{ $p ? 'Optional' : 'Blank = same as SKU' }}">
+      <input type="text" name="barcode" class="form-control" value="{{ $val('barcode') }}" placeholder="{{ $p ? 'Optional' : 'Blank = auto number' }}">
       @error('barcode')<div class="text-danger">{{ $message }}</div>@enderror
     </div>
     <div class="col-md-2 mb-3">
@@ -456,7 +456,7 @@ $(document).ready(function () {
           <td><input type="number" name="variations[${index}][compare_at_price]" step="any" min="0" class="form-control v-compare" value="${defComp}" placeholder="—"></td>
           <td><input type="number" name="variations[${index}][stock_quantity]" step="any" class="form-control" value="0"></td>
           <td><input type="text" name="variations[${index}][sku]" class="form-control" value="${mainSku}-${label}"></td>
-          <td><input type="text" name="variations[${index}][barcode]" class="form-control" placeholder="Blank = same as SKU"></td>
+          <td><input type="text" name="variations[${index}][barcode]" class="form-control" placeholder="Blank = auto number"></td>
           <td><button type="button" class="btn btn-sm btn-danger remove-variation">X</button></td>
         </tr>
       `);

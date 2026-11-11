@@ -80,17 +80,9 @@ class ProductController extends Controller
     public function barcodeSelection()
     {
         // rows are fetched page by page by barcodeData()
-        // labels whose barcode is too long to scan on the 2in label (see ShortBarcode)
-        $longCount = count(\App\Services\ShortBarcode::longOnes());
+        // items whose barcode is too long for the label — their labels print a short label code
+        $longCount = \App\Services\ShortBarcode::countLong();
         return view('products.barcode-selection', compact('longCount'));
-    }
-
-    /** Give every variation whose barcode is too long for the label a short numeric barcode. */
-    public function shortenBarcodes()
-    {
-        $n = \App\Services\ShortBarcode::shortenAll();
-        return redirect()->route('products.barcode.selection')
-            ->with('success', "{$n} barcode(s) changed to short numeric codes. SKUs are unchanged. Reprint those labels.");
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -332,6 +324,8 @@ class ProductController extends Controller
             // Manual barcode: variation barcode first, then fall back to the
             // product's own barcode, then SKU as a last resort.
             $barcodeText  = $variation->barcode ?? $variation->product->barcode ?? $variation->sku ?? 'NO-BARCODE';
+            // too long to scan on the 2in label → print the short label code (stored barcode / SKU stay as they are)
+            $barcodeText  = \App\Services\ShortBarcode::forLabel((int) $variation->id, (string) $barcodeText);
             $price        = number_format($variation->salePrice(), 2);          // size price, else product default
             $comparePrice = $variation->comparePrice() !== null ? number_format($variation->comparePrice(), 2) : null;
             $brand        = $variation->product->brand ?? '';
@@ -620,9 +614,9 @@ class ProductController extends Controller
             if ($autoSku) {
                 $data['sku'] = Product::generateSku((int) $data['category_id']);
             }
-            // barcode left blank = same as the SKU
+            // barcode left blank = a random unique number (never a copy of the SKU)
             if (blank($data['barcode'] ?? null)) {
-                $data['barcode'] = Product::where('barcode', $data['sku'])->exists() ? null : $data['sku'];
+                $data['barcode'] = \App\Services\BarcodeGenerator::generate();
             }
             $data['opening_stock'] = $data['opening_stock'] ?? 0;
             foreach (['cmt_cost', 'cost_price', 'selling_price', 'consumption', 'reorder_level', 'max_stock_level', 'minimum_order_qty'] as $num) {
@@ -782,12 +776,10 @@ class ProductController extends Controller
             if (is_array($request->variations)) {
                 foreach ($request->variations as $variationData) {
                     $variation = ProductVariation::findOrFail($variationData['id']);
-                    // barcode that was simply the old SKU follows the SKU when the size changes
-                    $barcode = $variationData['barcode'] ?? $variation->barcode;
-                    if ($barcode === $variation->sku && $variationData['sku'] !== $variation->sku
-                        && !ProductVariation::withTrashed()->where('barcode', $variationData['sku'])->where('id', '!=', $variation->id)->exists()) {
-                        $barcode = $variationData['sku'];
-                    }
+                    // a barcode is independent of the SKU: changing the SKU never changes it.
+                    // A size that has none yet (blank box) gets a random unique number.
+                    $barcode = trim((string) ($variationData['barcode'] ?? ''));
+                    if ($barcode === '') $barcode = $variation->barcode ?: \App\Services\BarcodeGenerator::generate();
                     $update = [
                         'sku'            => $variationData['sku'],
                         'barcode'        => $barcode,
@@ -910,16 +902,15 @@ class ProductController extends Controller
     }
 
     /**
-     * Barcode for a NEW variation: what was typed, otherwise the same as its
-     * SKU (left empty only in the rare case that SKU is already somebody's barcode).
+     * Barcode for a NEW variation: what was typed, otherwise a random unique number
+     * (never a copy of the SKU, so it stays short and scannable however long the SKU is).
      */
     private function variationBarcode(?string $typed, string $sku): ?string
     {
         $typed = trim((string) $typed);
         if ($typed !== '') return $typed;
 
-        // = SKU, unless the SKU is too long to scan on the label → short numeric code
-        return \App\Services\ShortBarcode::forNewVariation($sku);
+        return \App\Services\BarcodeGenerator::generate();
     }
 
     /** A typed price, or the fallback when the box was left blank. */
@@ -951,7 +942,8 @@ class ProductController extends Controller
         try {
             $variation = ProductVariation::with('product')->where('barcode', $barcode)->first()
                 ?? ProductVariation::with('product')->where('sku', $barcode)->first()
-                ?? app(\App\Services\ItemCodeLookup::class)->loose(ProductVariation::with('product'), (string) $barcode);
+                ?? app(\App\Services\ItemCodeLookup::class)->loose(ProductVariation::with('product'), (string) $barcode)
+                ?? \App\Services\ShortBarcode::variationFor((string) $barcode);   // short code printed on labels with a too-long barcode
 
             if ($variation && $variation->product) {
                 return response()->json([
@@ -1327,7 +1319,7 @@ class ProductController extends Controller
 
             $helperRow = [
                 '← your SKU',
-                'barcode (blank = same as SKU)',
+                'barcode (blank = auto number)',
                 '← product name',
                 'optional brand name',
                 $catList,
@@ -1347,7 +1339,7 @@ class ProductController extends Controller
                 'max qty',
                 'min order qty',
                 '← variation SKU (blank if no variations)',
-                'barcode (blank = same as SKU)',
+                'barcode (blank = auto number)',
                 'variation stock qty',
                 'size selling price (blank = product selling price)',
                 'size compare-at price (blank = product compare-at)',

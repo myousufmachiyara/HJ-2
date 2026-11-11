@@ -22,22 +22,11 @@
             </div>
         @endif
 
-        @if (session('success'))
-            <div class="alert alert-success">{{ session('success') }}</div>
-        @endif
-
         @if (($longCount ?? 0) > 0)
-            <div class="alert alert-warning d-flex justify-content-between align-items-center">
-                <div>
-                    <strong>{{ number_format($longCount) }}</strong> item barcode(s) are too long to scan on the 2-inch label
-                    (the bars print too thin). Give them a short numeric barcode &mdash; SKUs stay as they are and
-                    scanning a SKU still finds the item.
-                </div>
-                <form method="POST" action="{{ route('products.shortenBarcodes') }}" class="ms-3"
-                      onsubmit="return confirm('Change {{ $longCount }} barcode(s) to short numeric codes?\n\nLabels already printed for these items will no longer match the new barcode (the SKU on them still works). Reprint them afterwards.');">
-                    @csrf
-                    <button type="submit" class="btn btn-warning btn-sm text-nowrap">Fix barcodes</button>
-                </form>
+            <div class="alert alert-info">
+                <strong>{{ number_format($longCount) }}</strong> item(s) have a barcode too long to scan on the 2-inch label.
+                Their labels print a short 10-digit code instead (e.g. <code>9900001234</code>). Nothing is changed in the item itself &mdash;
+                barcode and SKU stay the same on Shopify / LAAM. Scan those labels in Billtrix (POS, invoices, transfers).
             </div>
         @endif
 

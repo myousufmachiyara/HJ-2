@@ -33,7 +33,7 @@ class FabricSetup
         while (ProductVariation::withTrashed()->where('sku', $sku)->exists()) {
             $sku = $base . '-' . $n++;
         }
-        $barcode = ShortBarcode::forNewVariation($sku);   // barcode = SKU (short numeric code when the SKU is too long to scan)
+        $barcode = BarcodeGenerator::generate();   // random unique number, not a copy of the SKU
         $variation = $fabric->variations()->create(['sku' => $sku, 'barcode' => $barcode, 'stock_quantity' => 0]);
         $variation->attributeValues()->sync([$pannaValueId]);
 

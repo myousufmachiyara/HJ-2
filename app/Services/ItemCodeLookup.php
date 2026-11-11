@@ -25,7 +25,8 @@ class ItemCodeLookup
 
         $variation = ProductVariation::with('product')->where('barcode', $code)->first()
             ?? ProductVariation::with('product')->where('sku', $code)->first()
-            ?? $this->loose(ProductVariation::with('product'), $code);
+            ?? $this->loose(ProductVariation::with('product'), $code)
+            ?? ShortBarcode::variationFor($code);
 
         if ($variation && $variation->product) {
             $p = $variation->product;

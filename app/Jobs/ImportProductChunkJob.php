@@ -70,11 +70,10 @@ class ImportProductChunkJob implements ShouldQueue
 
                 $existingProduct = Product::where('sku', $productSku)->first();
                 $wasNew  = ! $existingProduct;
-                // barcode column blank: new product → same as its SKU; existing product → keep its barcode
+                // barcode column blank: new product → random unique number; existing product → keep its barcode
                 $productBarcode = $rawProductBarcode !== '' && strtolower($rawProductBarcode) !== 'nan'
                     ? $rawProductBarcode
-                    : ($existingProduct ? $existingProduct->barcode
-                        : (Product::where('barcode', $productSku)->exists() ? null : $productSku));
+                    : ($existingProduct ? $existingProduct->barcode : \App\Services\BarcodeGenerator::generate());
                 $product = Product::updateOrCreate(
                     ['sku' => $productSku],
                     [
@@ -113,11 +112,11 @@ class ImportProductChunkJob implements ShouldQueue
             try {
                 $existingVariation = ProductVariation::where('sku', $variationSku)->first();
                 $wasNew    = ! $existingVariation;
-                // barcode column blank: new variation → same as its SKU; existing → keep its barcode
+                // barcode column blank: new variation → random unique number; existing → keep its barcode
                 $variationBarcode = trim($rowData['variation barcode'] ?? '');
                 if ($variationBarcode === '' || strtolower($variationBarcode) === 'nan') {
                     $variationBarcode = $existingVariation ? $existingVariation->barcode
-                        : \App\Services\ShortBarcode::forNewVariation($variationSku);
+                        : \App\Services\BarcodeGenerator::generate();
                 }
                 $variation = ProductVariation::updateOrCreate(
                     ['sku' => $variationSku],

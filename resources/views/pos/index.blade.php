@@ -1125,6 +1125,14 @@ function findByCode(code) {
   for (const p of PRODUCTS) {
     if ((p.barcode && p.barcode.toUpperCase() === c) || (p.sku && p.sku.toUpperCase() === c)) return { product: p, variation: null };
   }
+  // short label code (99 + 8-digit size id) printed on labels whose barcode is too long to scan
+  const m = /^99(\d{8})$/.exec(c);
+  if (m) {
+    const id = parseInt(m[1], 10);
+    for (const p of PRODUCTS) {
+      for (const v of p.variations) if (v.id === id) return { product: p, variation: v };
+    }
+  }
   return null;
 }
 
