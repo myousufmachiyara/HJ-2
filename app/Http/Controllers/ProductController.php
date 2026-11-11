@@ -468,7 +468,7 @@ class ProductController extends Controller
         $brandFont     = 20;
         $productFont   = 26;
         $variationFont = 20;
-        $barHeight     = 60;      // Code128 bar height in dots
+        $barHeight     = 70;      // Code128 bar height in dots
         $barcodeBlock  = $barHeight + 24; // + the printer's own interpretation-line text under the bars
         $gap           = 4;
 
@@ -500,13 +500,21 @@ class ProductController extends Controller
             $y += $variationFont + $gap;
         }
 
-        // Code128 barcode with the printer's own human-readable
-        // interpretation line under the bars ("Y" below) — this replaces
-        // the separate monospace "barcode number" text field entirely,
-        // since the printer renders it natively and it's guaranteed to
-        // line up with the bars exactly, unlike the HTML/CSS version.
-        $fields[] = "^BY2,3,{$barHeight}";
-        $fields[] = "^FO{$marginX},{$y}^BCN,{$barHeight},Y,N,N^FD{$barcodeText}^FS";
+        // Code128 drawn by the PRINTER itself (crisp, no browser/driver re-drawing).
+        //  - mode "A" = automatic: digits are packed two per symbol (Code C), so numeric
+        //    codes are about half as wide and get thicker, more scannable bars;
+        //  - ^BY picks the widest bar (up to 3 dots) that still leaves a 10-bar quiet zone
+        //    on each side of the 2in label; centred, with the printer's own
+        //    human-readable line under the bars.
+        try {
+            $modules = (new \Picqer\Barcode\Types\TypeCode128())->getBarcode($barcodeText)->getWidth();
+        } catch (\Throwable $e) {
+            $modules = 11 * (strlen($barcodeText) + 3) + 2;
+        }
+        $bar = max(1, min(3, intdiv($width, $modules + 20)));
+        $x   = max(0, intdiv($width - $modules * $bar, 2));
+        $fields[] = "^BY{$bar},3,{$barHeight}";
+        $fields[] = "^FO{$x},{$y}^BCN,{$barHeight},Y,N,N,A^FD{$barcodeText}^FS";
 
         $body = implode("\n", $fields);
 

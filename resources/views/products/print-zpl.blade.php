@@ -48,7 +48,7 @@
             <table class="table table-bordered table-sm align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>Brand</th>
+                        <th>SKU</th>
                         <th>Product</th>
                         <th>Variation</th>
                         <th>Barcode</th>
@@ -57,7 +57,7 @@
                 <tbody>
                     @foreach($barcodes as $barcode)
                         <tr>
-                            <td>{{ $barcode['brand'] ?: '—' }}</td>
+                            <td>{{ $barcode['sku'] ?: '—' }}</td>
                             <td>{{ $barcode['product'] }}</td>
                             <td>{{ $barcode['variation'] ?: '—' }}</td>
                             <td><code>{{ $barcode['barcodeText'] }}</code></td>
