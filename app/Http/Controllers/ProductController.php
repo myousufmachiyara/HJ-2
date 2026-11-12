@@ -786,8 +786,13 @@ class ProductController extends Controller
             $handledVariationIds = [];
 
             if (is_array($request->variations)) {
+                $removedIds = array_map('intval', (array) $request->input('removed_variations', []));
                 foreach ($request->variations as $variationData) {
-                    $variation = ProductVariation::findOrFail($variationData['id']);
+                    // a row without an id (e.g. a block the page disabled while removing it) or one that is
+                    // being removed in this same save is not an existing size to update
+                    $vid = $variationData['id'] ?? null;
+                    if (!$vid || in_array((int) $vid, $removedIds, true)) continue;
+                    $variation = ProductVariation::findOrFail($vid);
                     // a barcode is independent of the SKU: changing the SKU never changes it.
                     // A size that has none yet (blank box) gets a random unique number.
                     $barcode = trim((string) ($variationData['barcode'] ?? ''));
@@ -951,7 +956,7 @@ class ProductController extends Controller
         foreach ($rows as $i => $r) {
             $variation = $product->variations()->create([
                 'sku'              => $final[$i],
-                'barcode'          => trim((string) $r['barcode']) !== '' ? trim((string) $r['barcode']) : $genAt[$i],
+                'barcode'          => trim((string) $r['barcode']) !== '' ? trim((string) $r['barcode']) : (string) $genAt[$i],
                 'stock_quantity'   => $r['stock'] ?? 0,
                 // blank = the product's default price
                 'selling_price'    => $this->priceOr($r['sell'], $product->selling_price),
