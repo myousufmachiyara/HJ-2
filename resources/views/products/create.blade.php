@@ -536,4 +536,5 @@ $(document).ready(function () {
   });
 });
 </script>
+@include('products._image-compress')
 @endsection
