@@ -28,6 +28,29 @@ class BarcodeGenerator
         throw new \RuntimeException('Could not generate a unique barcode.');
     }
 
+    /** $n unique barcodes with a single check against the database per round (instead of 2 queries each). */
+    public static function generateMany(int $n): array
+    {
+        $codes = [];
+        for ($round = 0; $round < 20 && count($codes) < $n; $round++) {
+            $cand = [];
+            while (count($cand) + count($codes) < $n) {
+                $c = (string) random_int(1, 9);
+                for ($i = 0; $i < 11; $i++) $c .= random_int(0, 9);
+                if (!isset($cand[$c]) && !in_array($c, $codes, true)) $cand[$c] = true;
+            }
+            $list  = array_keys($cand);
+            $taken = ProductVariation::withTrashed()->where(fn ($q) => $q->whereIn('barcode', $list)->orWhereIn('sku', $list))->get(['barcode', 'sku'])
+                ->flatMap(fn ($r) => [$r->barcode, $r->sku])
+                ->merge(Product::withTrashed()->where(fn ($q) => $q->whereIn('barcode', $list)->orWhereIn('sku', $list))->get(['barcode', 'sku'])
+                    ->flatMap(fn ($r) => [$r->barcode, $r->sku]))
+                ->filter()->flip();
+            foreach ($list as $c) if (!isset($taken[$c])) $codes[] = $c;
+        }
+        if (count($codes) < $n) throw new \RuntimeException('Could not generate unique barcodes.');
+        return $codes;
+    }
+
     public static function taken(string $code): bool
     {
         return ProductVariation::withTrashed()->where(fn ($q) => $q->where('barcode', $code)->orWhere('sku', $code))->exists()

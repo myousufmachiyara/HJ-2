@@ -635,26 +635,15 @@ class ProductController extends Controller
             }
 
             if ($request->has('variations')) {
-                foreach ($request->variations as $variationData) {
-                    $ids = collect($variationData['attributes'] ?? [])->pluck('attribute_value_id')->filter()->toArray();
-                    $sku = trim((string) ($variationData['sku'] ?? ''));
-                    if ($autoSku || $sku === '' || str_starts_with($sku, '-')) {
-                        $sku = Product::variationSku($product->sku, $ids);
-                    }
-                    $sku = $this->uniqueVariationSku($sku);
-                    $variation = $product->variations()->create([
-                        'sku'            => $sku,
-                        'barcode'        => $this->variationBarcode($variationData['barcode'] ?? null, $sku),
-                        'stock_quantity' => $variationData['stock_quantity'] ?? 0,
-                        // blank = the product's default price
-                        'selling_price'    => $this->priceOr($variationData['selling_price'] ?? null, $product->selling_price),
-                        'compare_at_price' => $this->priceOr($variationData['compare_at_price'] ?? null, $product->compare_at_price),
-                    ]);
-
-                    if ($ids) {
-                        $variation->attributeValues()->sync($ids);
-                    }
-                }
+                $rows = collect($request->variations)->map(fn ($v) => [
+                    'ids'     => collect($v['attributes'] ?? [])->pluck('attribute_value_id')->filter()->values()->all(),
+                    'sku'     => $v['sku'] ?? '',
+                    'barcode' => $v['barcode'] ?? '',
+                    'stock'   => $v['stock_quantity'] ?? 0,
+                    'sell'    => $v['selling_price'] ?? null,
+                    'compare' => $v['compare_at_price'] ?? null,
+                ])->all();
+                $this->createVariations($product, $rows, $autoSku);
             }
 
             $this->saveFabricSetup($product, $request);
@@ -803,26 +792,15 @@ class ProductController extends Controller
             }
 
             if (is_array($request->new_variations)) {
-                foreach ($request->new_variations as $newVar) {
-                    $newSku = trim((string) ($newVar['sku'] ?? ''));
-                    if ($newSku === '' || str_starts_with($newSku, '-')) {
-                        $newSku = Product::variationSku($product->sku, (array) ($newVar['attributes'] ?? []));
-                    }
-                    $newSku = $this->uniqueVariationSku($newSku);
-                    $variation = $product->variations()->create([
-                        'sku'            => $newSku,
-                        'barcode'        => $this->variationBarcode($newVar['barcode'] ?? null, $newSku),
-                        'stock_quantity' => $newVar['stock_quantity'] ?? 0,
-                        'selling_price'    => $this->priceOr($newVar['selling_price'] ?? null, $product->selling_price),
-                        'compare_at_price' => $this->priceOr($newVar['compare_at_price'] ?? null, $product->compare_at_price),
-                    ]);
-
-                    if (!empty($newVar['attributes'])) {
-                        $variation->attributeValues()->sync($newVar['attributes']);
-                    }
-
-                    $handledVariationIds[] = $variation->id;
-                }
+                $rows = collect($request->new_variations)->map(fn ($v) => [
+                    'ids'     => collect((array) ($v['attributes'] ?? []))->filter()->values()->all(),
+                    'sku'     => $v['sku'] ?? '',
+                    'barcode' => $v['barcode'] ?? '',
+                    'stock'   => $v['stock_quantity'] ?? 0,
+                    'sell'    => $v['selling_price'] ?? null,
+                    'compare' => $v['compare_at_price'] ?? null,
+                ])->all();
+                $handledVariationIds = array_merge($handledVariationIds, $this->createVariations($product, $rows, false));
             }
 
             if ($request->filled('removed_variations')) {
@@ -902,15 +880,68 @@ class ProductController extends Controller
     }
 
     /**
-     * Barcode for a NEW variation: what was typed, otherwise a random unique number
-     * (never a copy of the SKU, so it stays short and scannable however long the SKU is).
+     * Save new sizes of a product in a handful of queries (instead of ~8 per size, which made
+     * "Create product" slow on a remote database): attribute values, SKU clashes and barcode
+     * clashes are each checked once for ALL sizes, and the attribute links are inserted in one go.
+     *
+     * Each $rows item: ids (attribute value ids), sku, barcode, stock, sell, compare.
+     * SKU: typed one, else product SKU + attribute values (made unique with -2, -3 …).
+     * Barcode: typed one, else a random unique 12-digit number (never a copy of the SKU).
+     * Returns the new variation ids.
      */
-    private function variationBarcode(?string $typed, string $sku): ?string
+    private function createVariations(Product $product, array $rows, bool $forceAutoSku = false): array
     {
-        $typed = trim((string) $typed);
-        if ($typed !== '') return $typed;
+        if (!$rows) return [];
 
-        return \App\Services\BarcodeGenerator::generate();
+        $values = \App\Models\AttributeValue::whereIn('id', collect($rows)->pluck('ids')->flatten()->unique()->values())->get()->keyBy('id');
+
+        // wanted SKUs
+        $wanted = [];
+        foreach ($rows as $i => $r) {
+            $sku = trim((string) $r['sku']);
+            if ($forceAutoSku || $sku === '' || str_starts_with($sku, '-')) {
+                $sku = Product::variationSkuFrom($product->sku, collect($r['ids'])->map(fn ($id) => $values[$id] ?? null)->filter());
+            }
+            $wanted[$i] = $sku;
+        }
+
+        // make them unique — one query for the whole batch; suffixes only when something clashes
+        $inDb = ProductVariation::withTrashed()->whereIn('sku', array_unique($wanted))->pluck('sku')->flip();
+        $used = [];
+        $final = [];
+        foreach ($wanted as $i => $sku) {
+            $cand = $sku; $n = 2;
+            if (isset($inDb[$cand]) || isset($used[$cand])) {
+                do { $cand = $sku . '-' . $n++; }
+                while (isset($used[$cand]) || ProductVariation::withTrashed()->where('sku', $cand)->exists());
+            }
+            $used[$cand] = true;
+            $final[$i] = $cand;
+        }
+
+        // barcodes: typed ones kept, blanks get random unique numbers (one check for all)
+        $blank = array_keys(array_filter($rows, fn ($r) => trim((string) $r['barcode']) === ''));
+        $gen   = $blank ? \App\Services\BarcodeGenerator::generateMany(count($blank)) : [];
+        $genAt = array_combine($blank, $gen) ?: [];
+
+        $ids = []; $pivot = []; $now = now();
+        foreach ($rows as $i => $r) {
+            $variation = $product->variations()->create([
+                'sku'              => $final[$i],
+                'barcode'          => trim((string) $r['barcode']) !== '' ? trim((string) $r['barcode']) : $genAt[$i],
+                'stock_quantity'   => $r['stock'] ?? 0,
+                // blank = the product's default price
+                'selling_price'    => $this->priceOr($r['sell'], $product->selling_price),
+                'compare_at_price' => $this->priceOr($r['compare'], $product->compare_at_price),
+            ]);
+            $ids[] = $variation->id;
+            foreach (array_unique($r['ids']) as $valueId) {
+                $pivot[] = ['product_variation_id' => $variation->id, 'attribute_value_id' => $valueId, 'created_at' => $now, 'updated_at' => $now];
+            }
+        }
+        if ($pivot) DB::table('product_variation_attribute_values')->insert($pivot);
+
+        return $ids;
     }
 
     /** A typed price, or the fallback when the box was left blank. */

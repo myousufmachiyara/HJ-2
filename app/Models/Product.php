@@ -108,8 +108,13 @@ class Product extends Model
     /** Variation SKU = product SKU + attribute values, e.g. KRT-00001-M or KRT-00001-RED-M */
     public static function variationSku(string $productSku, array $attributeValueIds): string
     {
-        $values = AttributeValue::whereIn('id', $attributeValueIds)
-            ->orderBy('attribute_id')->pluck('value')
+        return static::variationSkuFrom($productSku, AttributeValue::whereIn('id', $attributeValueIds)->get());
+    }
+
+    /** Same, from attribute values that are already loaded (no query) — used when saving many sizes at once. */
+    public static function variationSkuFrom(string $productSku, $attributeValues): string
+    {
+        $values = collect($attributeValues)->sortBy('attribute_id')->pluck('value')
             // keep the value readable: "2-3Y" stays 2-3Y (was 23Y), "3/4" → 3-4,
             // "Free Size" → FREE-SIZE; quotes and other symbols (44") are dropped
             ->map(fn ($v) => trim(preg_replace('/-+/', '-', preg_replace('/[^A-Z0-9-]/', '',
