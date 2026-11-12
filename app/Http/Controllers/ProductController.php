@@ -600,6 +600,10 @@ class ProductController extends Controller
             'variations.*.barcode.distinct' => 'The same barcode is typed on two variations.',
         ]);
 
+        // timing of each step → storage/logs/laravel.log ("[Product Store] timing"), to see where a slow save spends its time
+        $t0 = microtime(true); $marks = []; DB::enableQueryLog();
+        $mark = function (string $step) use (&$marks, $t0) { $marks[$step] = (int) round((microtime(true) - $t0) * 1000); };
+
         DB::beginTransaction();
         try {
             $data = $request->only([
@@ -623,7 +627,9 @@ class ProductController extends Controller
                 if (array_key_exists($num, $data) && $data[$num] === null) unset($data[$num]);
             }
 
+            $mark('sku+barcode');
             $product = Product::create($data);
+            $mark('product row');
 
             Log::info('[Product Store] Product created', ['product_id' => $product->id]);
 
@@ -633,6 +639,8 @@ class ProductController extends Controller
                     $product->images()->create(['image_path' => $path]);
                 }
             }
+
+            $mark('images saved');
 
             if ($request->has('variations')) {
                 $rows = collect($request->variations)->map(fn ($v) => [
@@ -648,7 +656,22 @@ class ProductController extends Controller
 
             $this->saveFabricSetup($product, $request);
 
+            $mark('sizes saved');
             DB::commit();
+            $mark('commit');
+
+            $log = collect(DB::getQueryLog());
+            Log::info('[Product Store] timing', [
+                'total_ms'   => $marks['commit'],
+                'steps_ms'   => $marks,   // cumulative: time since the save started
+                'queries'    => $log->count(),
+                'db_ms'      => (int) round($log->sum('time')),
+                'slowest_ms' => (int) round($log->max('time') ?? 0),
+                'sizes'      => count((array) $request->variations),
+                'images'     => count((array) $request->file('prod_att')),
+                'images_kb'  => (int) round(collect((array) $request->file('prod_att'))->sum(fn ($f) => $f->getSize()) / 1024),
+            ]);
+            DB::disableQueryLog();
             return redirect()->route('products.index')->with('success', 'Product ' . $product->sku . ' created successfully.');
 
         } catch (\Illuminate\Validation\ValidationException $e) {
