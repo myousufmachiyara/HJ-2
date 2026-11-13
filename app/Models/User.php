@@ -2,47 +2,51 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\Auditable;
-use App\Models\Concerns\BelongsToBusiness;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use Auditable, BelongsToBusiness, HasApiTokens, HasRoles, Notifiable;
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory, Notifiable;
+    use HasRoles;
 
-    protected $attributes = ['is_active' => true];
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [
+        'name',
+        'username', 
+        'email',
+        'password',
+        'is_active',  // <-- add this here
+    ];
 
-    protected $fillable = ['business_id', 'branch_id', 'name', 'email', 'username', 'phone', 'locale', 'password', 'is_active', 'last_login_at'];
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
 
-    protected $hidden = ['password', 'remember_token'];
-
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
-            'last_login_at' => 'datetime',
             'password' => 'hashed',
-            'is_active' => 'boolean',
         ];
-    }
-
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
-    }
-
-    public function isOwner(): bool
-    {
-        return $this->hasRole('Owner');
-    }
-
-    /** The shared login every public-demo visitor is signed in as. */
-    public function isDemoVisitor(): bool
-    {
-        return config('billtrix.demo.enabled') && $this->username === config('billtrix.demo.username');
     }
 }

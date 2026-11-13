@@ -2,18 +2,44 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Retry invoices that could not reach FBR when they were saved.
-\Illuminate\Support\Facades\Schedule::command('billtrix:fbr-sync')->everyFiveMinutes()->withoutOverlapping();
+// FIX (critical): this used to live in app/Console/kernel.php's schedule()
+// method. That class is never bootstrapped on Laravel 11/12's bootstrap/app.php
+// structure — Illuminate\Contracts\Console\Kernel is bound to the framework's
+// own Illuminate\Foundation\Console\Kernel, not App\Console\Kernel, unless you
+// explicitly wire it in. `php artisan schedule:list` proved it: only the two
+// prune commands below ever showed up, never this one. That silently meant no
+// queued job (Shopify sync included, since it dispatches to the default queue)
+// was ever processed automatically, no matter how the OS-level cron/Task
+// Scheduler entry calling `schedule:run` was configured — see
+// App\Console\Commands\SetupScheduler for that OS-level half of the setup.
+Schedule::call(function () {
+    Log::info('Scheduler is running at: ' . now());
+    file_put_contents(storage_path('logs/cron-marker.txt'), now());
+})->everyMinute();
 
-// Nightly database backup (kept for 14 days). Copy storage/app/backups off the server regularly.
-\Illuminate\Support\Facades\Schedule::command('billtrix:backup')->dailyAt('01:30')->withoutOverlapping();
+// Also works the "imports" queue (bulk product import), so imports no longer need
+// start-worker.bat to be running. Shopify / default jobs are picked first.
+Schedule::command('queue:work --queue=default,imports --stop-when-empty --max-time=3600 --tries=3')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->before(fn () => Log::info('Starting queue worker...'))
+    ->after(fn () => Log::info('Queue worker finished.'));
 
-// Public demo only: reload fresh demo data every night (leads are kept). Needs BILLTRIX_DEMO_MODE and BILLTRIX_DEMO_RESET.
-if (config('billtrix.demo.enabled') && config('billtrix.demo.nightly_reset')) {
-    \Illuminate\Support\Facades\Schedule::command('billtrix:demo-reset --force')->dailyAt('03:00')->withoutOverlapping();
-}
+// Housekeeping.
+Schedule::command('queue:prune-batches --hours=48 --unfinished=72')->daily();
+Schedule::command('queue:prune-failed --hours=168')->daily();
+
+// HJ flow setup — creates missing stock locations (one per customer / vendor),
+// their inventory accounts, system accounts and module permissions. Idempotent.
+Artisan::command('hj:setup', function () {
+    \App\Support\HjSetup::run();
+    $this->info('HJ setup complete: locations, inventory accounts and permissions are in sync.');
+})->purpose('Sync stock locations, inventory accounts and permissions for the HJ flow');
