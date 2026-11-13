@@ -78,7 +78,7 @@ class StockTransferController extends Controller
 
     public function edit($id)
     {
-        $transfer = StockTransfer::with(['details.product', 'details.variation'])->findOrFail($id);
+        $transfer = StockTransfer::with(['details.product:id,name', 'details.variation:id,sku'])->findOrFail($id);
         return view('stock-transfer.edit', $this->formData() + compact('transfer'));
     }
 
@@ -164,24 +164,40 @@ class StockTransferController extends Controller
         return [
             'locationGroups'    => Location::grouped(),
             'defaultLocationId' => Location::defaultId(),
-            'products'          => Product::orderBy('name')->get(['id', 'name', 'barcode']),
-        ];
+        ];   // (no product list: items are added by scan / search, so the page stays light with 1000s of lines)
     }
 
     private function validateRequest(Request $request): array
     {
-        return $request->validate([
+        // the page sends its lines as one JSON field (hundreds of lines would hit PHP's max_input_vars)
+        if ($request->filled('items_json')) {
+            $decoded = json_decode((string) $request->input('items_json'), true);
+            $request->merge(['items' => is_array($decoded) ? $decoded : []]);
+        }
+
+        $data = $request->validate([
             'date'                 => 'required|date',
             'from_location_id'     => 'required|exists:locations,id',
             'to_location_id'       => 'required|exists:locations,id|different:from_location_id',
             'remarks'              => 'nullable|string|max:500',
             'items'                => 'required|array|min:1',
-            'items.*.product_id'   => 'required|exists:products,id',
-            'items.*.variation_id' => 'nullable|exists:product_variations,id',
+            'items.*.product_id'   => 'required|integer',
+            'items.*.variation_id' => 'nullable|integer',
             'items.*.quantity'     => 'required|numeric|min:0.01',
         ], [
             'to_location_id.different' => 'From and To location must be different.',
         ]);
+
+        // Do the products / sizes exist? One query each for the whole list (not one per line).
+        $pids = collect($data['items'])->pluck('product_id')->unique()->values();
+        $vids = collect($data['items'])->pluck('variation_id')->filter()->unique()->values();
+        if (DB::table('products')->whereIn('id', $pids)->count() !== $pids->count()) {
+            throw ValidationException::withMessages(['items' => 'One of the products on this movement no longer exists.']);
+        }
+        if ($vids->isNotEmpty() && DB::table('product_variations')->whereIn('id', $vids)->count() !== $vids->count()) {
+            throw ValidationException::withMessages(['items' => 'One of the sizes on this movement no longer exists.']);
+        }
+        return $data;
     }
 
     private function deriveType(int $fromId, int $toId): string
@@ -208,22 +224,30 @@ class StockTransferController extends Controller
         $value = 0.0;
         $rows  = [];
 
+        // one set of cost queries for all lines (instead of 3+ per line), one insert for the details
+        $cost    = Inventory::avgCostResolver($transfer->date, collect($lines)->pluck('product_id')->unique()->all());
+        $now     = now();
+        $details = [];
+        $remark  = 'Movement #' . $transfer->id . ' ' . $from->name . ' → ' . $to->name;
+
         foreach ($lines as $l) {
-            $cost = Inventory::avgCost($l['product_id'], $l['variation_id'], $transfer->date);
-            StockTransferDetail::create([
+            $c = $cost($l['product_id'], $l['variation_id']);
+            $details[] = [
                 'transfer_id'  => $transfer->id,
                 'product_id'   => $l['product_id'],
                 'variation_id' => $l['variation_id'],
                 'quantity'     => $l['qty'],
-                'unit_cost'    => $cost,
-            ]);
-            $value += $cost * $l['qty'];
+                'unit_cost'    => $c,
+                'created_at'   => $now,
+                'updated_at'   => $now,
+            ];
+            $value += $c * $l['qty'];
 
-            $base = ['product_id' => $l['product_id'], 'variation_id' => $l['variation_id'], 'unit_cost' => $cost,
-                     'remarks' => 'Movement #' . $transfer->id . ' ' . $from->name . ' → ' . $to->name];
+            $base = ['product_id' => $l['product_id'], 'variation_id' => $l['variation_id'], 'unit_cost' => $c, 'remarks' => $remark];
             $rows[] = $base + ['location_id' => $from->id, 'qty' => -$l['qty']];
             $rows[] = $base + ['location_id' => $to->id,   'qty' =>  $l['qty']];
         }
+        foreach (array_chunk($details, 500) as $chunk) StockTransferDetail::insert($chunk);
 
         Inventory::sync($transfer, $transfer->date, $rows);
 

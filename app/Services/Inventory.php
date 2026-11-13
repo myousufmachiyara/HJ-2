@@ -172,11 +172,14 @@ class Inventory
      * Batch version of avgCost() for reports: returns fn(productId, variationId) => cost
      * using 3 queries instead of one per item.
      */
-    public static function avgCostResolver(?string $asOf = null): \Closure
+    public static function avgCostResolver(?string $asOf = null, ?array $productIds = null): \Closure
     {
+        // $productIds: only these products are read (a document with a few hundred lines needs a few hundred
+        // products' history, not the whole ledger)
         $base = fn () => StockLedger::whereIn('source_type', self::COST_SOURCES)
             ->where('qty', '>', 0)->where('unit_cost', '>', 0)
-            ->when($asOf, fn ($q) => $q->where('date', '<=', $asOf));
+            ->when($asOf, fn ($q) => $q->where('date', '<=', $asOf))
+            ->when($productIds !== null, fn ($q) => $q->whereIn('product_id', $productIds ?: [0]));
 
         $byVariation = $base()->whereNotNull('variation_id')->groupBy('product_id', 'variation_id')
             ->selectRaw('product_id, variation_id, SUM(qty * unit_cost) / SUM(qty) AS c')->get()
