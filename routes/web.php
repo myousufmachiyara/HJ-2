@@ -1,325 +1,184 @@
 <?php
 
+use App\Http\Controllers\Accounting\AccountController;
+use App\Http\Controllers\Accounting\PartyController;
+use App\Http\Controllers\Accounting\PartyPriceController;
+use App\Http\Controllers\Accounting\VoucherController;
+use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DemoController;
+use App\Http\Controllers\DemoLeadController;
+use App\Http\Controllers\Inventory\ProductController;
+use App\Http\Controllers\Inventory\StockAdjustmentController;
+use App\Http\Controllers\Inventory\StockTransferController;
+use App\Http\Controllers\Reports\ReportController;
+use App\Http\Controllers\Settings\BranchController;
+use App\Http\Controllers\Settings\BusinessController;
+use App\Http\Controllers\Settings\MasterDataController;
+use App\Http\Controllers\Settings\RoleController;
+use App\Http\Controllers\Settings\UserController;
+use App\Http\Controllers\Trade\CashSessionController;
+use App\Http\Controllers\Trade\DeliveryController;
+use App\Http\Controllers\Trade\InvoiceController;
+use App\Http\Controllers\Trade\OrderController;
+use App\Http\Controllers\Trade\PosController;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Auth;
 
-use App\Http\Controllers\{
-    DashboardController,
-    SubHeadOfAccController,
-    COAController,
-    SaleInvoiceController,
-    ProductionController,
-    PurchaseInvoiceController,
-    PurchaseReturnController,
-    ProductController,
-    UserController,
-    RoleController,
-    AttributeController,
-    ProductCategoryController,
-    ProductSubcategoryController,
-    ProductionReceivingController,
-    VoucherController,
-    InventoryReportController,
-    PurchaseReportController,
-    ProductionReportController,
-    SalesReportController,
-    AccountsReportController,
-    SummaryReportController,
-    SaleReturnController,
-    LocationController,
-    StockTransferController,
-    ProductionReturnController,
-    ProductionWastageController,
-    StockAdjustmentController,
-    PdcChequeController,
-    PosController,
-    ShopifyStoreController,
-    ItemsImportController
-};
+// ── Guest ──────────────────────────────────────────────────────────────
+Route::middleware('guest')->group(function () {
+    Route::get('login', [AuthController::class, 'showLogin'])->name('login');
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::get('register', [AuthController::class, 'showRegister'])->name('register');
+    Route::post('register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+    // Public demo (BILLTRIX_DEMO_MODE): /demo?utm_source=… remembers the source, the form signs the visitor in.
+    Route::get('demo', [DemoController::class, 'enter'])->name('demo.enter');
+    Route::post('demo/start', [DemoController::class, 'start'])->name('demo.start')->middleware('throttle:10,1');
+});
 
-Auth::routes();
+// ── Signed in ──────────────────────────────────────────────────────────
+Route::middleware(['auth', 'tenant'])->group(function () {
+    Route::post('logout', [AuthController::class, 'logout'])->name('logout');
+    Route::put('my-password', [AuthController::class, 'changePassword'])->name('password.change');
+    Route::put('my-language', [AuthController::class, 'setLocale'])->name('locale.change');
 
-// product pictures (public — Shopify downloads them when products are pushed)
-Route::get('/product-image/{image}', [\App\Http\Controllers\ProductImageController::class, 'show'])
-    ->whereNumber('image')->name('product-image.show');
-
-Route::middleware(['auth'])->group(function () {
-
-    // ── Dashboard ─────────────────────────────────────────────────────
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
-    // keeps the login alive while a page is open and hands out a fresh form token
-    Route::get('/keep-alive', fn () => response()->json(['token' => csrf_token()]))->name('keep-alive');
 
-    // open an attachment (purchase / purchase-return / receiving / voucher)
-    Route::get('/attachments/{kind}/{id}/{n?}', [\App\Http\Controllers\AttachmentController::class, 'show'])
-        ->whereNumber(['id', 'n'])->name('attachments.show');
-    Route::view('/unauthorized', 'unauthorized')->name('unauthorized');
-
-    // ── User helpers ──────────────────────────────────────────────────
-    Route::put('/users/{id}/change-password', [UserController::class, 'changePassword'])->name('users.changePassword');
-    Route::put('/users/{id}/toggle-active',   [UserController::class, 'toggleActive'])->name('users.toggleActive');
-
-    // ── Product helpers ───────────────────────────────────────────────
-    Route::get('/products/details',                     [ProductController::class, 'details'])->name('products.receiving');
-    Route::get('/products/barcode-selection',           [ProductController::class, 'barcodeSelection'])->name('products.barcode.selection');
-    Route::get('/products/data',                        [ProductController::class, 'data'])->name('products.data')->middleware('check.permission:products.index');
-    Route::get('/products/barcode-data',                [ProductController::class, 'barcodeData'])->name('products.barcode.data');
-    Route::get('/products/item-search',                 [ProductController::class, 'itemSearch'])->name('products.item-search');
-    Route::post('/products/generate-multiple-barcodes', [ProductController::class, 'generateMultipleBarcodes'])->name('products.generateBarcodes');
-    Route::post('/products/generate-zpl-labels',         [ProductController::class, 'generateZplLabels'])->name('products.generateZplLabels');
-    Route::get('/get-product-by-code/{barcode}',        [ProductController::class, 'getByBarcode'])->name('product.byBarcode');
-    Route::get('/product/{product}/variations',         [ProductController::class, 'getVariations'])->name('product.variations');
-    Route::get('/product/{product}/variations2',        [ProductController::class, 'getVariations2'])->name('product.variations2');
-    Route::get('/product/{product}/productions',        [ProductionController::class, 'getProductProductions'])->name('product.productions');
-    // Fabric consumption per product CATEGORY and PANNA (replaces the per-fabric article lines)
-    Route::get('/panna-consumption',  [\App\Http\Controllers\PannaConsumptionController::class, 'index'])->name('panna-consumption.index')->middleware('check.permission:products.index');
-    Route::post('/panna-consumption', [\App\Http\Controllers\PannaConsumptionController::class, 'store'])->name('panna-consumption.store')->middleware('check.permission:products.edit');
-    // old per-fabric pages → the category page
-    Route::get('/products/{product}/articles', fn () => redirect()->route('panna-consumption.index'))->name('products.fabric-articles')->middleware('check.permission:products.edit');
-    Route::post('/products/{product}/articles',        [\App\Http\Controllers\FabricArticleController::class, 'store'])->name('products.fabric-articles.store')->middleware('check.permission:products.edit');
-    Route::post('/products/{product}/articles/import', [\App\Http\Controllers\FabricArticleController::class, 'import'])->name('products.fabric-articles.import')->middleware('check.permission:products.edit');
-    Route::get('/fabric-options',                      [\App\Http\Controllers\FabricArticleController::class, 'optionsForArticle'])->name('fabric.options');
-    Route::get('/products/next-sku/{category}',          [ProductController::class, 'nextSku'])->name('products.next-sku');
-    Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
-    Route::get('/products/bulk-price',         [\App\Http\Controllers\BulkPriceController::class, 'index'])->name('bulk-price.index')->middleware('check.permission:products.edit');
-    Route::post('/products/bulk-price/export', [\App\Http\Controllers\BulkPriceController::class, 'updateAndExport'])->name('bulk-price.export')->middleware('check.permission:products.edit');
-    // ── LAAM weekly sale settlement (upload LAAM ledger export) ───────
-    Route::prefix('laam_invoices')->name('laam_invoices.')->group(function () {
-        $c = \App\Http\Controllers\LaamInvoiceController::class;
-        Route::get('/',            [$c, 'index'])  ->middleware('check.permission:laam_invoices.index')->name('index');
-        Route::get('/create',      [$c, 'create']) ->middleware('check.permission:laam_invoices.create')->name('create');
-        Route::post('/parse',      [$c, 'parse'])  ->middleware('check.permission:laam_invoices.create')->name('parse');
-        Route::post('/',           [$c, 'store'])  ->middleware('check.permission:laam_invoices.create')->name('store');
-        Route::get('/{id}',        [$c, 'show'])   ->whereNumber('id')->middleware('check.permission:laam_invoices.index')->name('show');
-        Route::delete('/{id}',     [$c, 'destroy'])->whereNumber('id')->middleware('check.permission:laam_invoices.delete')->name('destroy');
+    Route::middleware('can:manage-leads')->group(function () {
+        Route::get('demo-leads', [DemoLeadController::class, 'index'])->name('demo-leads.index');
+        Route::get('demo-leads/export', [DemoLeadController::class, 'export'])->name('demo-leads.export');
+        Route::put('demo-leads/{lead}', [DemoLeadController::class, 'update'])->name('demo-leads.update');
     });
 
-    Route::get('/products/bulk-upload/template', [ProductController::class, 'bulkUploadTemplate'])->name('products.bulk-upload.template')->middleware('check.permission:products.create');
-    Route::get('/products/bulk-export',          [ProductController::class, 'bulkExport'])->name('products.bulk-export')->middleware('check.permission:products.create');
-    Route::post('/products/cleanup-formula-import', [ProductController::class, 'cleanupFormulaProducts'])->name('products.cleanup-formula')->middleware('check.permission:products.delete');
-    Route::post('/products/bulk-import',         [ProductController::class, 'bulkImport'])->name('products.bulk-import')->middleware('check.permission:products.create');
-    Route::get('/products/import-status/{id}',   [ProductController::class, 'importStatus'])->name('products.import-status')->middleware('check.permission:products.index');
-
-    // ── Purchase helpers ──────────────────────────────────────────────
-    Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices'])->name('product.invoices');
-
-    // ── Production helpers ────────────────────────────────────────────
-    Route::get('/production-summary/{id}',  [ProductionController::class, 'summary'])->name('production.summary');
-    Route::get('/production-gatepass/{id}', [ProductionController::class, 'printGatepass'])->name('production.gatepass');
-    
-    Route::get('/stock/available', [StockTransferController::class, 'available'])->name('stock.available');
-    Route::post('/stock/available-bulk', [StockTransferController::class, 'availableBulk'])->name('stock.available.bulk');
-    Route::post('/locations/{id}/set-default', [LocationController::class, 'setDefault'])->name('locations.set-default');
-
-    // ── Sale Invoice payment helpers ──────────────────────────────────
-    Route::post('/sale_invoices/{id}/payments',               [SaleInvoiceController::class, 'addPayment'])->name('sale_invoices.payments.store');
-    Route::put('/sale_invoices/{id}/payments/{paymentId}',    [SaleInvoiceController::class, 'updatePayment'])->name('sale_invoices.payments.update');
-    Route::delete('/sale_invoices/{id}/payments/{paymentId}', [SaleInvoiceController::class, 'deletePayment'])->name('sale_invoices.payments.destroy');
-
-    // ── PDC helpers ───────────────────────────────────────────────────
-    Route::get('/pdc_cheques/vendor-bills/{vendor}', [PdcChequeController::class, 'vendorBills'])->middleware('check.permission:pdc_cheques.create')->name('pdc_cheques.vendor-bills');
-    Route::post('/pdc_cheques/{id}/status',          [PdcChequeController::class, 'changeStatus'])->middleware('check.permission:pdc_cheques.edit')->name('pdc_cheques.status');
-
-    // ── Vouchers (single tabbed page) ────────────────────────────────
-    Route::get('vouchers', [VoucherController::class, 'index'])->middleware('check.permission:vouchers.index')->name('vouchers.all');
-
-    // ── POS helper routes (permission-guarded) ────────────────────────
-    // These are AJAX/action endpoints used from inside the POS screen.
-    // They share pos_system.create (checkout/hold) and pos_system.index (recall/z-report/receipt)
-    Route::prefix('pos')->name('pos.')->middleware('check.permission:pos_system.index')->group(function () {
-        Route::post('/checkout',    [PosController::class, 'checkout'])->name('checkout')->middleware('check.permission:pos_system.create');
-        Route::post('/hold',        [PosController::class, 'holdOrder'])->name('hold')->middleware('check.permission:pos_system.create');
-        Route::get('/recall/{id}',  [PosController::class, 'recallOrder'])->name('recall');
-        Route::delete('/held/{id}', [PosController::class, 'deleteHeldOrder'])->name('held.destroy')->middleware('check.permission:pos_system.delete');
-        Route::get('/z-report',     [PosController::class, 'zReport'])->name('zreport');
-        Route::get('/receipt/{id}', [PosController::class, 'receipt'])->name('receipt')->middleware('check.permission:pos_system.print');
+    // Settings
+    Route::prefix('settings')->name('settings.')->group(function () {
+        Route::get('business', [BusinessController::class, 'edit'])->name('business');
+        Route::put('business', [BusinessController::class, 'update']);
+        Route::resource('branches', BranchController::class)->except(['show', 'create', 'edit']);
+        Route::post('branches/{branch}/warehouses', [BranchController::class, 'storeWarehouse'])->name('warehouses.store');
+        Route::put('warehouses/{warehouse}', [BranchController::class, 'updateWarehouse'])->name('warehouses.update');
+        Route::resource('users', UserController::class)->except(['show']);
+        Route::delete('users/{user}/tokens/{token}', [UserController::class, 'revokeToken'])->name('users.tokens.destroy');
+        Route::resource('roles', RoleController::class)->except(['show']);
+        Route::get('audit', [\App\Http\Controllers\Settings\AuditController::class, 'index'])->name('audit');
+        Route::get('backup', [\App\Http\Controllers\Settings\BackupController::class, 'index'])->name('backup');
+        Route::get('backup/download', [\App\Http\Controllers\Settings\BackupController::class, 'download'])->name('backup.download');
     });
 
-    // ── Common Modules ────────────────────────────────────────────────
-    $modules = [
-        // User Management
-        'roles'       => ['controller' => RoleController::class,       'permission' => 'user_roles'],
-        'users'       => ['controller' => UserController::class,        'permission' => 'users'],
+    // Spreadsheet import
+    Route::prefix('imports/{importType}')->whereIn('importType', ['products', 'parties'])->name('imports.')
+        ->controller(\App\Http\Controllers\Settings\ImportController::class)->group(function () {
+            Route::get('/', 'show')->name('show');
+            Route::get('template', 'template')->name('template');
+            Route::post('/', 'store')->name('store');
+        });
 
-        // Accounts
-        'coa'  => ['controller' => COAController::class,          'permission' => 'coa'],
-        'shoa' => ['controller' => SubHeadOfAccController::class, 'permission' => 'shoa'],
+    // Simple lookup lists: units, categories, price levels, tax rates.
+    Route::get('masters/{master}', [MasterDataController::class, 'index'])->name('masters.index');
+    Route::post('masters/{master}', [MasterDataController::class, 'store'])->name('masters.store');
+    Route::put('masters/{master}/{id}', [MasterDataController::class, 'update'])->name('masters.update');
+    Route::delete('masters/{master}/{id}', [MasterDataController::class, 'destroy'])->name('masters.destroy');
 
-        // Products
-        'products'              => ['controller' => ProductController::class,         'permission' => 'products'],
-        'product_categories'    => ['controller' => ProductCategoryController::class, 'permission' => 'product_categories'],
-        'product_subcategories' => ['controller' => ProductSubcategoryController::class, 'permission' => 'product_subcategories'],
-        'attributes'            => ['controller' => AttributeController::class,       'permission' => 'attributes'],
+    // Accounting
+    Route::resource('accounts', AccountController::class)->except(['show']);
+    Route::get('parties/lookup', [PartyController::class, 'lookup'])->name('parties.lookup');
+    Route::get('parties/{party}/open-invoices', [PartyController::class, 'openInvoices'])->name('parties.open-invoices');
+    Route::resource('parties', PartyController::class);
+    Route::post('parties/{party}/prices', [PartyPriceController::class, 'store'])->name('parties.prices.store')->middleware('feature:customer_prices');
+    Route::delete('parties/{party}/prices/{price}', [PartyPriceController::class, 'destroy'])->name('parties.prices.destroy')->middleware('feature:customer_prices');
 
-        // Stock Management
-        'locations'      => ['controller' => LocationController::class,     'permission' => 'locations'],
-        'stock_transfer' => ['controller' => StockTransferController::class, 'permission' => 'stock_transfer'],
-        'stock_adjustments' => ['controller' => StockAdjustmentController::class, 'permission' => 'stock_adjustments'],
+    Route::prefix('vouchers/{voucherType}')->whereIn('voucherType', ['receipt', 'payment', 'journal', 'contra'])
+        ->name('vouchers.')->controller(VoucherController::class)->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{entry}', 'show')->name('show');
+            Route::get('{entry}/edit', 'edit')->name('edit');
+            Route::put('{entry}', 'update')->name('update');
+            Route::delete('{entry}', 'destroy')->name('destroy');
+        });
 
-        // Post-dated cheques issued to vendors
-        'pdc_cheques' => ['controller' => PdcChequeController::class, 'permission' => 'pdc_cheques'],
+    // Inventory
+    Route::get('products/lookup', [ProductController::class, 'lookup'])->name('products.lookup');
+    Route::get('labels', [\App\Http\Controllers\Inventory\LabelController::class, 'index'])->name('labels.index');
+    Route::post('labels/print', [\App\Http\Controllers\Inventory\LabelController::class, 'print'])->name('labels.print');
+    Route::middleware('feature:variants')->group(function () {
+        Route::resource('attributes', \App\Http\Controllers\Inventory\AttributeController::class)->only(['index', 'store', 'update', 'destroy'])
+            ->parameters(['attributes' => 'attribute']);
+    });
+    Route::resource('products', ProductController::class);
+    Route::resource('stock-adjustments', StockAdjustmentController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
+    Route::resource('stock-transfers', StockTransferController::class)->only(['index', 'create', 'store', 'show', 'destroy'])
+        ->middleware('feature:multi_warehouse');
 
-        // Purchases
-        'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
-        'purchase_return'   => ['controller' => PurchaseReturnController::class,  'permission' => 'purchase_return'],
+    // Sales, purchases and returns share one controller.
+    Route::prefix('{doc}')->whereIn('doc', array_keys(InvoiceController::DOCS))
+        ->name('invoices.')->controller(InvoiceController::class)->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{invoice}', 'show')->name('show')->whereNumber('invoice');
+            Route::get('{invoice}/edit', 'edit')->name('edit')->whereNumber('invoice');
+            Route::put('{invoice}', 'update')->name('update')->whereNumber('invoice');
+            Route::delete('{invoice}', 'destroy')->name('destroy')->whereNumber('invoice');
+            Route::get('{invoice}/print', 'print')->name('print')->whereNumber('invoice');
+        });
 
-        // Sales
-        'sale_invoices' => ['controller' => SaleInvoiceController::class, 'permission' => 'sale_invoices'],
-        'sale_return'   => ['controller' => SaleReturnController::class,  'permission' => 'sale_return'],
+    // Quotations, sales orders, purchase orders
+    Route::prefix('{orderDoc}')->whereIn('orderDoc', array_keys(OrderController::DOCS))
+        ->name('orders.')->controller(OrderController::class)->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{order}', 'show')->name('show')->whereNumber('order');
+            Route::get('{order}/edit', 'edit')->name('edit')->whereNumber('order');
+            Route::put('{order}', 'update')->name('update')->whereNumber('order');
+            Route::delete('{order}', 'destroy')->name('destroy')->whereNumber('order');
+            Route::put('{order}/cancel', 'cancel')->name('cancel')->whereNumber('order');
+            Route::get('{order}/print', 'print')->name('print')->whereNumber('order');
+        });
 
-        // Vouchers
-        'vouchers' => ['controller' => VoucherController::class, 'permission' => 'vouchers'],
-
-        // Production
-        'production'           => ['controller' => ProductionController::class,          'permission' => 'production'],
-        'production_receiving' => ['controller' => ProductionReceivingController::class, 'permission' => 'production_receiving'],
-        'production_return'    => ['controller' => ProductionReturnController::class,    'permission' => 'production_return'],
-        'production_wastage'   => ['controller' => ProductionWastageController::class, 'permission' => 'production_wastage'],
-        
-        // POS System — treated exactly like other modules
-        'pos_system' => ['controller' => PosController::class, 'permission' => 'pos_system'],
-    ];
-
-    foreach ($modules as $uri => $config) {
-        $controller = $config['controller'];
-        $permission = $config['permission'];
-        $param      = $uri === 'roles' ? '{role}' : '{id}';
-
-        // ── Vouchers: special prefix routing ─────────────────────────
-        if ($uri === 'vouchers') {
-            Route::prefix("$uri/{type}")->group(function () use ($controller, $permission) {
-                Route::get('/',           [$controller, 'index'])->middleware("check.permission:$permission.index")->name('vouchers.index');
-                Route::get('/create',     [$controller, 'create'])->middleware("check.permission:$permission.create")->name('vouchers.create');
-                Route::post('/',          [$controller, 'store'])->middleware("check.permission:$permission.create")->name('vouchers.store');
-                Route::get('/{id}',       [$controller, 'show'])->middleware("check.permission:$permission.index")->name('vouchers.show');
-                Route::get('/{id}/edit',  [$controller, 'edit'])->middleware("check.permission:$permission.edit")->name('vouchers.edit');
-                Route::put('/{id}',       [$controller, 'update'])->middleware("check.permission:$permission.edit")->name('vouchers.update');
-                Route::delete('/{id}',    [$controller, 'destroy'])->middleware("check.permission:$permission.delete")->name('vouchers.destroy');
-                Route::get('/{id}/print', [$controller, 'print'])->middleware("check.permission:$permission.print")->name('vouchers.print');
-            });
-            continue;
-        }
-
-        // ── POS System: custom route mapping ─────────────────────────
-        // POS doesn't follow the standard create/edit/show/update pattern.
-        // index  → pos_system/          → opens the POS terminal screen
-        // store  → not applicable       → checkout is handled via AJAX prefix routes above
-        // print  → pos_system/{id}/print → receipt PDF
-        // delete → not applicable
-        if ($uri === 'pos_system') {
-            Route::get('pos_system', [$controller, 'index'])
-                ->middleware("check.permission:$permission.index")
-                ->name('pos_system.index');
-
-            Route::get('pos_system/{id}/print', [$controller, 'receipt'])
-                ->middleware("check.permission:$permission.print")
-                ->name('pos_system.print');
-
-            continue;
-        }
-
-        // ── Standard CRUD modules ─────────────────────────────────────
-        Route::get("$uri",              [$controller, 'index'])  ->middleware("check.permission:$permission.index") ->name("$uri.index");
-        Route::get("$uri/create",       [$controller, 'create']) ->middleware("check.permission:$permission.create")->name("$uri.create");
-        Route::post("$uri",             [$controller, 'store'])  ->middleware("check.permission:$permission.create")->name("$uri.store");
-        Route::get("$uri/$param",       [$controller, 'show'])   ->middleware("check.permission:$permission.index") ->name("$uri.show");
-        Route::get("$uri/$param/edit",  [$controller, 'edit'])   ->middleware("check.permission:$permission.edit")  ->name("$uri.edit");
-        Route::put("$uri/$param",       [$controller, 'update']) ->middleware("check.permission:$permission.edit")  ->name("$uri.update");
-        Route::delete("$uri/$param",    [$controller, 'destroy'])->middleware("check.permission:$permission.delete")->name("$uri.destroy");
-        Route::get("$uri/$param/print", [$controller, 'print'])  ->middleware("check.permission:$permission.print") ->name("$uri.print");
-    }
-
-    // ── Reports ───────────────────────────────────────────────────────
-    Route::prefix('reports')->name('reports.')->group(function () {
-        Route::get('inventory',  [InventoryReportController::class,  'inventoryReports'])->name('inventory');
-        Route::get('purchase',   [PurchaseReportController::class,   'purchaseReports'])->name('purchase');
-        Route::get('production', [ProductionReportController::class, 'productionReports'])->name('production');
-        Route::get('sale',       [SalesReportController::class,      'saleReports'])->name('sale');
-        Route::get('accounts',   [AccountsReportController::class,   'accounts'])->name('accounts');
+    // Delivery challans
+    Route::middleware('feature:delivery_challans')->group(function () {
+        Route::get('deliveries/{delivery}/print', [DeliveryController::class, 'print'])->name('deliveries.print');
+        Route::resource('deliveries', DeliveryController::class);
     });
 
-    // ── Shopify ────────────────────────────────────────────────────────────────
-    // Permission-gated like every other module (see database/seeders/DatabaseSeeder.php,
-    // which already seeds shopify_stores.{index,create,edit,delete,print} — nothing
-    // here was actually enforcing them before this fix).
-    Route::prefix('shopify')->name('shopify.')->group(function () {
+    // FBR reporting
+    Route::get('fbr', [\App\Http\Controllers\Trade\FbrController::class, 'index'])->name('fbr.index');
+    Route::post('fbr/retry-all', [\App\Http\Controllers\Trade\FbrController::class, 'retryAll'])->name('fbr.retry-all');
+    Route::post('fbr/{invoice}/retry', [\App\Http\Controllers\Trade\FbrController::class, 'retry'])->name('fbr.retry');
 
-        Route::get('settings', [ShopifyStoreController::class, 'index'])
-            ->middleware('check.permission:shopify_stores.index')
-            ->name('settings');
-
-        // Step 1: submit form → redirects to Shopify
-        Route::post('store', [ShopifyStoreController::class, 'store'])
-            ->middleware('check.permission:shopify_stores.create')
-            ->name('store');
-
-        // Step 2: Shopify redirects back here. No permission check — Shopify itself
-        // hits this URL via the merchant's browser redirect. It is protected by the
-        // per-store `state` token + HMAC signature verification inside the controller
-        // instead of an ability check.
-        Route::get('oauth/callback', [ShopifyStoreController::class, 'oauthCallback'])
-            ->name('oauth.callback');
-
-        Route::put('store/{id}/defaults', [ShopifyStoreController::class, 'updateDefaults'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.defaults');
-
-        Route::post('store/{id}/sync', [ShopifyStoreController::class, 'manualSync'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.sync');
-
-        Route::delete('store/{id}', [ShopifyStoreController::class, 'destroy'])
-            ->middleware('check.permission:shopify_stores.delete')
-            ->name('store.delete');
-
-        Route::post('import', [ShopifyStoreController::class, 'import'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('import');
-
-        // Push software → Shopify (new products only, created as Draft)
-        Route::post('store/{id}/push', [ShopifyStoreController::class, 'pushNew'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.push');
-        Route::post('push-selected', [ShopifyStoreController::class, 'pushSelected'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('push.selected');
-        Route::post('store/{id}/check-access', [ShopifyStoreController::class, 'checkAccess'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.check-access');
-        Route::post('store/{id}/reauthorize', [ShopifyStoreController::class, 'reauthorize'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.reauthorize');
-        Route::get('store/{id}/push-preview', [ShopifyStoreController::class, 'pushPreview'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.push-preview');
-        Route::post('store/{id}/push-pictures', [ShopifyStoreController::class, 'pushPictures'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.push-pictures');
-        Route::put('store/{id}/brands', [ShopifyStoreController::class, 'saveBrands'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.brands');
-        Route::post('store/{id}/fix-skus', [ShopifyStoreController::class, 'fixSkus'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('store.fix-skus');
-
-        // Push selling + discount (compare-at) prices of chosen SKUs / barcodes to Shopify
-        Route::get('prices', [\App\Http\Controllers\ShopifyPriceController::class, 'index'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('prices');
-        Route::post('prices/check', [\App\Http\Controllers\ShopifyPriceController::class, 'check'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('prices.check');
-        Route::post('prices/push', [\App\Http\Controllers\ShopifyPriceController::class, 'push'])
-            ->middleware('check.permission:shopify_stores.edit')
-            ->name('prices.push');
+    // Point of sale and register shifts
+    Route::middleware('feature:pos')->group(function () {
+        Route::get('pos', [PosController::class, 'index'])->name('pos');
+        Route::post('pos', [PosController::class, 'store'])->name('pos.store');
+        Route::get('pos/recent', [PosController::class, 'recent'])->name('pos.recent');
+        Route::get('pos/catalog', [PosController::class, 'catalog'])->name('pos.catalog');
+        Route::get('cash-sessions', [CashSessionController::class, 'index'])->name('cash-sessions.index');
+        Route::post('cash-sessions', [CashSessionController::class, 'store'])->name('cash-sessions.store');
+        Route::get('cash-sessions/{cashSession}', [CashSessionController::class, 'show'])->name('cash-sessions.show');
+        Route::get('cash-sessions/{cashSession}/close', [CashSessionController::class, 'closeForm'])->name('cash-sessions.close');
+        Route::put('cash-sessions/{cashSession}/close', [CashSessionController::class, 'close']);
+        Route::get('cash-sessions/{cashSession}/print', [CashSessionController::class, 'print'])->name('cash-sessions.print');
     });
 
-    // ── Bulk Excel import (items only) ─────────────────────────────────
-    Route::post('/purchase-return/import-items', [ItemsImportController::class, 'purchaseReturn'])->middleware('check.permission:purchase_return.create')->name('purchase_return.import_items');
-    Route::post('/sale-invoices/import-items', [ItemsImportController::class, 'saleInvoice'])->middleware('check.permission:sale_invoices.create')->name('sale_invoices.import_items');
-    Route::post('/sale-return/import-items', [ItemsImportController::class, 'saleReturn'])->middleware('check.permission:sale_return.create')->name('sale_return.import_items');
-    Route::post('/stock-adjustments/import-items', [ItemsImportController::class, 'stockAdjustment'])->middleware('check.permission:stock_adjustments.create')->name('stock_adjustments.import_items');
-    Route::post('/stock-transfer/import-items', [ItemsImportController::class, 'stockTransfer'])->middleware('check.permission:stock_transfer.create')->name('stock_transfer.import_items');
-    Route::get('/stock_transfer/{id}/excel', [StockTransferController::class, 'exportExcel'])->middleware('check.permission:stock_transfer.print')->name('stock_transfer.excel');
-    
+    // Reports
+    Route::prefix('reports')->name('reports.')->controller(ReportController::class)->group(function () {
+        Route::get('/', 'index')->name('index');
+        Route::get('trial-balance', 'trialBalance')->name('trial-balance');
+        Route::get('profit-loss', 'profitLoss')->name('profit-loss');
+        Route::get('balance-sheet', 'balanceSheet')->name('balance-sheet');
+        Route::get('ledger', 'ledger')->name('ledger');
+        Route::get('party-statement', 'partyStatement')->name('party-statement');
+        Route::get('aging', 'aging')->name('aging');
+        Route::get('day-book', 'dayBook')->name('day-book');
+        Route::get('cash-book', 'cashBook')->name('cash-book');
+        Route::get('stock', 'stock')->name('stock');
+        Route::get('stock-movement', 'stockMovement')->name('stock-movement');
+        Route::get('low-stock', 'lowStock')->name('low-stock');
+        Route::get('register', 'register')->name('register');
+        Route::get('product-sales', 'productSales')->name('product-sales');
+        Route::get('withholding', 'withholding')->name('withholding');
+        Route::get('expiry', 'expiry')->name('expiry');
+    });
 });

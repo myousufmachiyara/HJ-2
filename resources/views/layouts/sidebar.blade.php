@@ -1,246 +1,144 @@
+@php
+    $u = auth()->user();
+    $is = fn (...$patterns) => request()->routeIs(...$patterns) ? 'nav-active' : '';
+    $open = fn (...$patterns) => request()->routeIs(...$patterns) ? 'nav-expanded nav-active' : '';
+    $doc = request()->route('doc');
+    $vt = request()->route('voucherType');
+    $od = request()->route('orderDoc');
+@endphp
 <aside id="sidebar-left" class="sidebar-left">
-  <div class="sidebar-header">
-    <div class="sidebar-title" style="display: flex; justify-content: space-between;">
-      <a href="{{ route('dashboard') }}" class="logo">
-        <img src="/assets/img/billtrix-logo-1.png" class="sidebar-logo" alt="BillTrix Logo" />
-      </a>
-      <div class="d-md-none toggle-sidebar-left col-1"
-           data-toggle-class="sidebar-left-opened"
-           data-target="html"
-           data-fire-event="sidebar-left-opened">
-        <i class="fas fa-times" aria-label="Toggle sidebar"></i>
-      </div>
-    </div>
-    <div class="sidebar-toggle d-none d-md-block"
-         data-toggle-class="sidebar-left-collapsed"
-         data-target="html"
-         data-fire-event="sidebar-left-toggle">
-      <i class="fas fa-bars" aria-label="Toggle sidebar"></i>
-    </div>
-  </div>
-
-  <div class="nano">
-    <div class="nano-content">
-      <nav id="menu" class="nav-main" role="navigation">
-        <ul class="nav nav-main">
-
-          {{-- ── Dashboard ── --}}
-          <li class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">
-            <a class="nav-link" href="{{ route('dashboard') }}">
-              <i class="fa fa-home" aria-hidden="true"></i>
-              <span>Dashboard</span>
+    <div class="sidebar-header">
+        <div class="sidebar-title" style="display: flex; justify-content: space-between;">
+            <a href="{{ route('dashboard') }}" class="logo">
+                <img src="{{ asset('assets/img/billtrix-logo-1.png') }}" class="sidebar-logo" alt="BillTrix Logo">
             </a>
-          </li>
-
-          {{-- ── User Management ── --}}
-          @if(auth()->user()->can('user_roles.index') || auth()->user()->can('users.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-user-shield"></i>
-              <span>Users</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('user_roles.index')
-                <li><a class="nav-link" href="{{ route('roles.index') }}">Roles & Permissions</a></li>
-              @endcan
-              @can('users.index')
-                <li><a class="nav-link" href="{{ route('users.index') }}">All Users</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Accounts ── --}}
-          @if(auth()->user()->can('coa.index') || auth()->user()->can('shoa.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-book"></i>
-              <span>Accounts</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('coa.index')
-                <li><a class="nav-link" href="{{ route('coa.index') }}">Chart of Accounts</a></li>
-              @endcan
-              @can('shoa.index')
-                <li><a class="nav-link" href="{{ route('shoa.index') }}">Sub Heads</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Products ── --}}
-          @if(auth()->user()->can('product_categories.index') || auth()->user()->can('attributes.index') || auth()->user()->can('products.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-layer-group"></i>
-              <span>Products</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('product_categories.index')
-                <li><a class="nav-link" href="{{ route('product_categories.index') }}">Categories</a></li>
-              @endcan
-              @can('product_subcategories.index')
-                <li><a class="nav-link" href="{{ route('product_subcategories.index') }}">Sub Category</a></li>
-              @endcan
-              @can('attributes.index')
-                <li><a class="nav-link" href="{{ route('attributes.index') }}">Attributes</a></li>
-              @endcan
-              @can('products.index')
-                <li><a class="nav-link" href="{{ route('products.index') }}">All Products</a></li>
-                <li><a class="nav-link" href="{{ route('panna-consumption.index') }}">PANNA Consumption</a></li>
-              @endcan
-              @can('products.edit')
-                <li><a class="nav-link" href="{{ route('bulk-price.index') }}">Bulk Price Update</a></li>
-              @endcan
-              @if(auth()->user()->can('shopify_stores.index'))
-                <li><a class="nav-link" href="{{ route('shopify.settings') }}">Shopify Stores</a></li>
-            @endif
-              @can('shopify_stores.edit')
-                <li><a class="nav-link" href="{{ route('shopify.prices') }}">Push Prices to Shopify</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Stock Management ── --}}
-          @if(auth()->user()->can('locations.index') || auth()->user()->can('stock_transfer.index') || auth()->user()->can('stock_adjustments.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-cubes"></i>
-              <span>Stock Management</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('locations.index')
-                <li><a class="nav-link" href="{{ route('locations.index') }}">Locations</a></li>
-              @endcan
-              @can('stock_transfer.index')
-                <li><a class="nav-link" href="{{ route('stock_transfer.index') }}">Stock Movement</a></li>
-              @endcan
-              @can('stock_adjustments.index')
-                <li><a class="nav-link" href="{{ route('stock_adjustments.index') }}">Stock Adjustment</a></li>
-              @endcan
-              @can('reports.inventory')
-                <li><a class="nav-link" href="{{ route('reports.inventory') }}?tab=LOC">Stock by Location</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Purchase ── --}}
-          @if(auth()->user()->can('purchase_invoices.index') || auth()->user()->can('purchase_return.index') || auth()->user()->can('production_receiving.index') || auth()->user()->can('pdc_cheques.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-shopping-cart"></i>
-              <span>Purchase</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('purchase_invoices.index')
-                <li><a class="nav-link" href="{{ route('purchase_invoices.index') }}">Invoices</a></li>
-              @endcan
-              @can('purchase_return.index')
-                <li><a class="nav-link" href="{{ route('purchase_return.index') }}">Returns</a></li>
-              @endcan
-              @can('production_receiving.index')
-                <li><a class="nav-link" href="{{ route('production_receiving.index') }}">FG Receiving (CMT)</a></li>
-              @endcan
-              @can('pdc_cheques.index')
-                <li><a class="nav-link" href="{{ route('pdc_cheques.index') }}">PDC Cheques</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Production ── --}}
-          @if(auth()->user()->can('production.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-industry"></i>
-              <span>Production</span>
-            </a>
-            <ul class="nav nav-children">
-              <li><a class="nav-link" href="{{ route('production.index') }}">Raw Issue</a></li>
-              <li><a class="nav-link" href="{{ route('production_receiving.index') }}">FG Receiving</a></li>
-              <li><a class="nav-link" href="{{ route('production_return.index') }}">FG Returns</a></li>
-              <li><a class="nav-link" href="{{ route('production_wastage.index') }}">Raw Wastage</a></li>
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Sale ── --}}
-          @if(auth()->user()->can('sale_invoices.index') || auth()->user()->can('sale_return.index') || auth()->user()->can('laam_invoices.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-file-invoice-dollar"></i>
-              <span>Sale</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('sale_invoices.index')
-                <li><a class="nav-link" href="{{ route('sale_invoices.index') }}">Invoices</a></li>
-              @endcan
-              @can('laam_invoices.index')
-                <li><a class="nav-link" href="{{ route('laam_invoices.index') }}">LAAM Sales</a></li>
-              @endcan
-              @can('sale_return.index')
-                <li><a class="nav-link" href="{{ route('sale_return.index') }}">Returns</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- ── Vouchers ── --}}
-          @can('vouchers.index')
-          <li class="{{ request()->routeIs('vouchers.all') ? 'active' : '' }}">
-            <a class="nav-link" href="{{ route('vouchers.all') }}">
-              <i class="fa fa-money-check"></i>
-              <span>Vouchers</span>
-            </a>
-          </li>
-          @endcan
-
-          {{-- ── Reports ── --}}
-          @if(
-            auth()->user()->can('reports.inventory') ||
-            auth()->user()->can('reports.purchase')  ||
-            auth()->user()->can('reports.production')||
-            auth()->user()->can('reports.sales')     ||
-            auth()->user()->can('reports.accounts')
-          )
-          <li class="nav-parent">
-            <a class="nav-link" href="#">
-              <i class="fa fa-chart-bar"></i>
-              <span>Reports</span>
-            </a>
-            <ul class="nav nav-children">
-              @can('reports.inventory')
-                <li><a class="nav-link" href="{{ route('reports.inventory') }}">Inventory</a></li>
-              @endcan
-              @can('reports.purchase')
-                <li><a class="nav-link" href="{{ route('reports.purchase') }}">Purchase</a></li>
-              @endcan
-              @can('reports.production')
-                <li><a class="nav-link" href="{{ route('reports.production') }}">Production</a></li>
-              @endcan
-              @can('reports.sales')
-                <li><a class="nav-link" href="{{ route('reports.sale') }}">Sales</a></li>
-              @endcan
-              @can('reports.accounts')
-                <li><a class="nav-link" href="{{ route('reports.accounts') }}">Accounts</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-        </ul>
-      </nav>
+            <div class="d-md-none toggle-sidebar-left col-1" data-toggle-class="sidebar-left-opened" data-target="html" data-fire-event="sidebar-left-opened">
+                <i class="fas fa-times" aria-label="{{ __('Toggle sidebar') }}"></i>
+            </div>
+        </div>
+        <div class="sidebar-toggle d-none d-md-block" data-toggle-class="sidebar-left-collapsed" data-target="html" data-fire-event="sidebar-left-toggle">
+            <i class="fas fa-bars" aria-label="{{ __('Toggle sidebar') }}"></i>
+        </div>
     </div>
 
-    <script>
-      if (typeof localStorage !== 'undefined') {
-        if (localStorage.getItem('sidebar-left-position') !== null) {
-          var sidebarLeft = document.querySelector('#sidebar-left .nano-content');
-          sidebarLeft.scrollTop = localStorage.getItem('sidebar-left-position');
-        }
-      }
-    </script>
-  </div>
+    <div class="nano">
+        <div class="nano-content">
+            <nav id="menu" class="nav-main" role="navigation">
+                <ul class="nav nav-main">
+                    <li class="{{ $is('dashboard') }}">
+                        <a class="nav-link" href="{{ route('dashboard') }}"><i class="fas fa-home"></i><span>{{ __('Dashboard') }}</span></a>
+                    </li>
+
+                    @feature('pos')
+                        @canany(['pos.use', 'cash_sessions.view'])
+                        <li class="{{ $is('pos', 'cash-sessions.*') }}">
+                            <a class="nav-link" href="{{ auth()->user()->can('pos.use') ? route('pos') : route('cash-sessions.index') }}"><i class="fas fa-cash-register"></i><span>{{ __('POS') }}</span></a>
+                        </li>
+                        @endcanany
+                    @endfeature
+
+                    @canany(['sales.view', 'sale_returns.view', 'parties.view'])
+                    <li class="nav-parent {{ in_array($doc, ['sales', 'sale-returns']) || in_array($od, ['quotations', 'sales-orders']) || request()->routeIs('deliveries.*') || ($vt === 'receipt') || request('type') === 'customer' ? 'nav-expanded nav-active' : '' }}">
+                        <a class="nav-link" href="#"><i class="fas fa-shopping-cart"></i><span>{{ __('Sales') }}</span></a>
+                        <ul class="nav nav-children">
+                            @can('sales.create')<li><a class="nav-link" href="{{ route('invoices.create', 'sales') }}">{{ __('New Sale') }}</a></li>@endcan
+                            @feature('quotations')@can('quotations.view')<li class="{{ $od === 'quotations' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('orders.index', 'quotations') }}">{{ __('Quotations') }}</a></li>@endcan @endfeature
+                            @feature('sales_orders')@can('sales_orders.view')<li class="{{ $od === 'sales-orders' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('orders.index', 'sales-orders') }}">{{ __('Sales Orders') }}</a></li>@endcan @endfeature
+                            @feature('delivery_challans')@can('deliveries.view')<li class="{{ $is('deliveries.*') }}"><a class="nav-link" href="{{ route('deliveries.index') }}">{{ __('Delivery Challans') }}</a></li>@endcan @endfeature
+                            @can('sales.view')<li class="{{ $doc === 'sales' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('invoices.index', 'sales') }}">{{ __('Sale Invoices') }}</a></li>@endcan
+                            @can('sale_returns.view')<li class="{{ $doc === 'sale-returns' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('invoices.index', 'sale-returns') }}">{{ __('Sale Returns') }}</a></li>@endcan
+                            @can('parties.view')<li><a class="nav-link" href="{{ route('parties.index', ['type' => 'customer']) }}">{{ __('Customers') }}</a></li>@endcan
+                            @can('vouchers.view')<li class="{{ $vt === 'receipt' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('vouchers.index', 'receipt') }}">{{ __('Receipts') }}</a></li>@endcan
+                            @if (($business?->setting('fbr_mode') ?? 'off') !== 'off')<li class="{{ $is('fbr.*') }}"><a class="nav-link" href="{{ route('fbr.index') }}">{{ __('FBR Reporting') }}</a></li>@endif
+                        </ul>
+                    </li>
+                    @endcanany
+
+                    @canany(['purchases.view', 'purchase_returns.view', 'parties.view'])
+                    <li class="nav-parent {{ in_array($doc, ['purchases', 'purchase-returns']) || $od === 'purchase-orders' || ($vt === 'payment') || request('type') === 'supplier' ? 'nav-expanded nav-active' : '' }}">
+                        <a class="nav-link" href="#"><i class="fas fa-truck-loading"></i><span>{{ __('Purchases') }}</span></a>
+                        <ul class="nav nav-children">
+                            @can('purchases.create')<li><a class="nav-link" href="{{ route('invoices.create', 'purchases') }}">{{ __('New Purchase') }}</a></li>@endcan
+                            @feature('purchase_orders')@can('purchase_orders.view')<li class="{{ $od === 'purchase-orders' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('orders.index', 'purchase-orders') }}">{{ __('Purchase Orders') }}</a></li>@endcan @endfeature
+                            @can('purchases.view')<li class="{{ $doc === 'purchases' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('invoices.index', 'purchases') }}">{{ __('Purchase Invoices') }}</a></li>@endcan
+                            @can('purchase_returns.view')<li class="{{ $doc === 'purchase-returns' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('invoices.index', 'purchase-returns') }}">{{ __('Purchase Returns') }}</a></li>@endcan
+                            @can('parties.view')<li><a class="nav-link" href="{{ route('parties.index', ['type' => 'supplier']) }}">{{ __('Suppliers') }}</a></li>@endcan
+                            @can('vouchers.view')<li class="{{ $vt === 'payment' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('vouchers.index', 'payment') }}">{{ __('Payments') }}</a></li>@endcan
+                        </ul>
+                    </li>
+                    @endcanany
+
+                    @canany(['products.view', 'stock.view'])
+                    <li class="nav-parent {{ $open('products.*', 'stock-adjustments.*', 'stock-transfers.*', 'attributes.*', 'labels.*') }} {{ in_array(request()->route('master'), ['units', 'categories']) ? 'nav-expanded nav-active' : '' }}">
+                        <a class="nav-link" href="#"><i class="fas fa-boxes"></i><span>{{ __('Inventory') }}</span></a>
+                        <ul class="nav nav-children">
+                            @can('products.view')<li class="{{ $is('products.*') }}"><a class="nav-link" href="{{ route('products.index') }}">{{ __('Products') }}</a></li>@endcan
+                            @feature('variants')
+                                @can('products.view')<li class="{{ $is('attributes.*') }}"><a class="nav-link" href="{{ route('attributes.index') }}">{{ __('Attributes') }}</a></li>@endcan
+                            @endfeature
+                            @can('products.labels')<li class="{{ $is('labels.*') }}"><a class="nav-link" href="{{ route('labels.index') }}">{{ __('Barcode Labels') }}</a></li>@endcan
+                            @can('products.edit')
+                                <li><a class="nav-link" href="{{ route('masters.index', 'categories') }}">{{ __('Categories') }}</a></li>
+                                <li><a class="nav-link" href="{{ route('masters.index', 'units') }}">{{ __('Units') }}</a></li>
+                            @endcan
+                            @can('stock.adjust')
+                                <li><a class="nav-link" href="{{ route('stock-adjustments.create', ['type' => 'opening']) }}">{{ __('Opening Stock') }}</a></li>
+                                <li><a class="nav-link" href="{{ route('stock-adjustments.create', ['type' => 'count']) }}">{{ __('Physical Stock Count') }}</a></li>
+                            @endcan
+                            @can('stock.view')<li class="{{ $is('stock-adjustments.index', 'stock-adjustments.show') }}"><a class="nav-link" href="{{ route('stock-adjustments.index') }}">{{ __('Stock Adjustments') }}</a></li>@endcan
+                            @feature('multi_warehouse')
+                                @can('stock.view')<li class="{{ $is('stock-transfers.*') }}"><a class="nav-link" href="{{ route('stock-transfers.index') }}">{{ __('Stock Transfers') }}</a></li>@endcan
+                            @endfeature
+                        </ul>
+                    </li>
+                    @endcanany
+
+                    @canany(['accounts.view', 'vouchers.view'])
+                    <li class="nav-parent {{ $open('accounts.*') }} {{ in_array($vt, ['journal', 'contra']) ? 'nav-expanded nav-active' : '' }}">
+                        <a class="nav-link" href="#"><i class="fas fa-book"></i><span>{{ __('Accounts') }}</span></a>
+                        <ul class="nav nav-children">
+                            @can('accounts.view')<li class="{{ $is('accounts.*') }}"><a class="nav-link" href="{{ route('accounts.index') }}">{{ __('Chart of Accounts') }}</a></li>@endcan
+                            @can('vouchers.view')
+                                <li><a class="nav-link" href="{{ route('vouchers.index', 'receipt') }}">{{ __('Receipt Vouchers') }}</a></li>
+                                <li><a class="nav-link" href="{{ route('vouchers.index', 'payment') }}">{{ __('Payment / Expense Vouchers') }}</a></li>
+                                <li class="{{ $vt === 'contra' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('vouchers.index', 'contra') }}">{{ __('Cash ⇄ Bank Transfers') }}</a></li>
+                                <li class="{{ $vt === 'journal' ? 'nav-active' : '' }}"><a class="nav-link" href="{{ route('vouchers.index', 'journal') }}">{{ __('Journal Vouchers') }}</a></li>
+                            @endcan
+                        </ul>
+                    </li>
+                    @endcanany
+
+                    @canany(['reports.sales', 'reports.purchases', 'reports.inventory', 'reports.accounts', 'reports.profit'])
+                    <li class="{{ $is('reports.*') }}">
+                        <a class="nav-link" href="{{ route('reports.index') }}"><i class="fas fa-chart-line"></i><span>{{ __('Reports') }}</span></a>
+                    </li>
+                    @endcanany
+
+                    @can('manage-leads')
+                    <li class="{{ $is('demo-leads.*') }}">
+                        <a class="nav-link" href="{{ route('demo-leads.index') }}"><i class="fas fa-user-plus"></i><span>{{ __('Demo Leads') }}</span></a>
+                    </li>
+                    @endcan
+
+                    @canany(['settings.manage', 'users.view', 'roles.view', 'branches.view'])
+                    <li class="nav-parent {{ $open('settings.*') }} {{ in_array(request()->route('master'), ['price-levels', 'tax-rates']) ? 'nav-expanded nav-active' : '' }}">
+                        <a class="nav-link" href="#"><i class="fas fa-cog"></i><span>{{ __('Settings') }}</span></a>
+                        <ul class="nav nav-children">
+                            @can('settings.manage')<li class="{{ $is('settings.business') }}"><a class="nav-link" href="{{ route('settings.business') }}">{{ __('Business & Features') }}</a></li>@endcan
+                            @can('branches.view')<li class="{{ $is('settings.branches.*') }}"><a class="nav-link" href="{{ route('settings.branches.index') }}">{{ __('Branches & Warehouses') }}</a></li>@endcan
+                            @can('users.view')<li class="{{ $is('settings.users.*') }}"><a class="nav-link" href="{{ route('settings.users.index') }}">{{ __('Users') }}</a></li>@endcan
+                            @can('roles.view')<li class="{{ $is('settings.roles.*') }}"><a class="nav-link" href="{{ route('settings.roles.index') }}">{{ __('Roles & Permissions') }}</a></li>@endcan
+                            @can('audit.view')<li class="{{ $is('settings.audit') }}"><a class="nav-link" href="{{ route('settings.audit') }}">{{ __('Audit Trail') }}</a></li>@endcan
+                            @can('backups.download')<li class="{{ $is('settings.backup') }}"><a class="nav-link" href="{{ route('settings.backup') }}">{{ __('Backup & Export') }}</a></li>@endcan
+                            @can('settings.manage')
+                                @feature('price_levels')<li><a class="nav-link" href="{{ route('masters.index', 'price-levels') }}">{{ __('Price Levels') }}</a></li>@endfeature
+                                @feature('tax')<li><a class="nav-link" href="{{ route('masters.index', 'tax-rates') }}">{{ __('Tax Rates') }}</a></li>@endfeature
+                            @endcan
+                        </ul>
+                    </li>
+                    @endcanany
+                </ul>
+            </nav>
+        </div>
+    </div>
 </aside>
