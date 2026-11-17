@@ -28,7 +28,10 @@ Schedule::call(function () {
 // start-worker.bat to be running. Shopify / default jobs are picked first.
 Schedule::command('queue:work --queue=default,imports --stop-when-empty --max-time=3600 --tries=3')
     ->everyMinute()
-    ->withoutOverlapping()
+    // The lock expires after 10 minutes. Without a time the lock lasts 24 h: if one worker is killed (server
+    // restart, memory limit, cron hiccup) the lock stays behind and NO worker starts again — jobs then sit
+    // "Queued 0 / 0" in Sync History until someone clears it. Two workers at once are safe (database queue).
+    ->withoutOverlapping(10)
     ->runInBackground()
     ->before(fn () => Log::info('Starting queue worker...'))
     ->after(fn () => Log::info('Queue worker finished.'));
