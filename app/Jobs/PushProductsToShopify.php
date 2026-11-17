@@ -137,9 +137,13 @@ class PushProductsToShopify implements ShouldQueue
     /** Notes about pictures that could not be sent (shown in Sync History). */
     private array $pictureErrors = [];
 
+    /** Sizes left out because another size of the same product has the identical option values. */
+    public array $duplicateSizes = [];
+
     /** Create one product on Shopify; returns its gid. */
     private function pushOne(Product $product): string
     {
+        $this->duplicateSizes = [];
         $input = $this->buildInput($product);
 
         // pictures: the files themselves are uploaded to Shopify first
@@ -172,6 +176,11 @@ class PushProductsToShopify implements ShouldQueue
 
         $this->link($product, $gid);
 
+        if ($this->duplicateSizes) {
+            $this->pictureErrors[] = "{$product->sku}: pushed, but " . count($this->duplicateSizes) . ' size(s) were left out because another size has the same option value — '
+                . implode(', ', $this->duplicateSizes) . ' (fix the duplicate sizes on the product)';
+        }
+
         // remember Shopify's id of each size (matched by SKU) for later imports
         foreach ($data['productSet']['product']['variants']['nodes'] ?? [] as $node) {
             if (empty($node['sku']) || empty($node['id'])) continue;
@@ -199,6 +208,7 @@ class PushProductsToShopify implements ShouldQueue
         }
 
         $variants = [];
+        $seen     = [];
         if ($variations->isEmpty()) {
             // product without sizes → Shopify's single default variant
             $options  = ['Title' => ['Default Title' => true]];
@@ -227,6 +237,10 @@ class PushProductsToShopify implements ShouldQueue
                         $values[] = ['optionName' => $optName, 'name' => $value];
                     }
                 }
+                // Shopify refuses two variants with identical option values ("The variant '3-4Y' already exists")
+                $key = mb_strtolower(implode('|', array_map(fn ($x) => trim($x['name']), $values)));
+                if (isset($seen[$key])) { $this->duplicateSizes[] = $v->sku; continue; }
+                $seen[$key] = true;
                 $variants[] = $this->variant($values, $v->salePrice(), $v->comparePrice(), $v->sku, $v->barcode);
             }
         }
