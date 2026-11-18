@@ -77,13 +77,16 @@ class BulkPriceController extends Controller
         $items = array_values(array_filter($items, fn ($i) => !empty($i['product_id'])));
 
         foreach ($items as $i) {
-            if (isset($i['new_price']) && $i['new_price'] !== '' && (!is_numeric($i['new_price']) || $i['new_price'] < 0)) {
-                return back()->with('error', 'Invalid price entered for one of the products.');
+            foreach (['new_price', 'new_discount'] as $f) {
+                if (isset($i[$f]) && $i[$f] !== '' && (!is_numeric($i[$f]) || $i[$f] < 0)) {
+                    return back()->with('error', 'Invalid price entered for one of the products.');
+                }
             }
         }
 
         $sheet = [];
 
+        try {
         DB::transaction(function () use ($items, &$sheet) {
             foreach ($items as $i) {
                 $product = Product::find($i['product_id']);
@@ -100,6 +103,20 @@ class BulkPriceController extends Controller
                     $variation?->refresh();
                 }
 
+                // 1b. the discount (after-discount) price, when the page sent one and the item has a discount
+                if (isset($i['new_discount']) && $i['new_discount'] !== '') {
+                    $p = $this->prices($product, $variation);
+                    if ($p['discount'] !== null && round((float) $i['new_discount'], 2) !== round((float) $p['discount'], 2)) {
+                        if ((float) $i['new_discount'] > (float) $p['actual']) {
+                            throw new \RuntimeException(($variation?->sku ?? $product->sku) . ': the discount price cannot be higher than the price before discount.');
+                        }
+                        $column = self::ACTUAL_IS_COMPARE_AT ? 'selling_price' : 'compare_at_price';
+                        ($variation ?: $product)->update([$column => round((float) $i['new_discount'], 2)]);
+                        $product->refresh();
+                        $variation?->refresh();
+                    }
+                }
+
                 // 2. export row with the values as they are now saved
                 $p = $this->prices($product, $variation);
                 $sheet[] = [
@@ -110,6 +127,9 @@ class BulkPriceController extends Controller
                 ];
             }
         });
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage() . ' Nothing was saved.');
+        }
 
         // "Save & Push to Shopify": same saved prices, sent to Shopify instead of downloading the sheet
         if ($request->boolean('push')) {

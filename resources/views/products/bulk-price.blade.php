@@ -8,7 +8,7 @@
         <small class="text-muted">
             Filter products by location, change the
             {{ $actualIsCompareAt ? 'actual (before-discount)' : 'selling' }} price, then export to Excel.
-            The discount price is never changed.
+            The discount (after-discount) price changes only if you edit it, or use "Keep same discount %".
         </small>
     </div>
 
@@ -107,6 +107,13 @@
             {{-- Apply one change to every ticked row --}}
             <div class="row g-2 align-items-end mb-3 p-2 border rounded bg-light">
                 <div class="col-md-2">
+                    <label class="form-label">Apply to</label>
+                    <select id="bulkTarget" class="form-control">
+                        <option value="actual">Price (before discount)</option>
+                        <option value="discount">Discount price (after)</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label">Change ticked rows</label>
                     <select id="bulkMode" class="form-control">
                         <option value="set">Set price to</option>
@@ -133,8 +140,12 @@
                 <div class="col-md-2">
                     <button type="button" class="btn btn-secondary w-100" id="applyBulk">Apply to ticked</button>
                 </div>
-                <div class="col-md-4 text-end">
-                    <input type="text" id="searchBox" class="form-control d-inline-block w-75" placeholder="Search SKU / name...">
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-outline-primary w-100" id="keepPct"
+                            title="Sets each ticked item's discount price so it keeps the same discount % after the new price">Keep same discount %</button>
+                </div>
+                <div class="col-md-12 text-end mt-1">
+                    <input type="text" id="searchBox" class="form-control d-inline-block w-25" placeholder="Search SKU / name...">
                     <span class="ms-2"><strong id="selCount">0</strong> ticked</span>
                 </div>
             </div>
@@ -151,13 +162,14 @@
                             <th class="text-end">Sold</th>
                             <th class="text-end">Current price</th>
                             <th class="text-end">Discount price</th>
-                            <th width="14%">New price</th>
+                            <th width="12%">New price</th>
+                            <th width="12%">New discount price</th>
                         </tr>
                     </thead>
                     <tbody>
                     @foreach($rows as $row)
                         <tr data-product="{{ $row->product_id }}" data-variation="{{ $row->variation_id }}"
-                            data-current="{{ $row->actual }}">
+                            data-current="{{ $row->actual }}" data-discount="{{ $row->discount }}">
                             <td><input type="checkbox" class="row-check"></td>
                             <td class="sku">{{ $row->sku }}</td>
                             <td class="pname">{{ $row->name }}</td>
@@ -168,6 +180,8 @@
                             <td class="text-end">{{ $row->discount !== null ? number_format($row->discount, 2) : '-' }}</td>
                             <td><input type="number" step="0.01" min="0" class="form-control form-control-sm new-price"
                                        value="{{ $row->actual }}"></td>
+                            <td><input type="number" step="0.01" min="0" class="form-control form-control-sm new-discount"
+                                       value="{{ $row->discount }}" @disabled($row->discount === null)></td>
                         </tr>
                     @endforeach
                     </tbody>
@@ -207,9 +221,12 @@
 
     // mark edited rows + tick them automatically
     document.addEventListener('input', e => {
-        if (!e.target.classList.contains('new-price')) return;
+        if (!e.target.classList.contains('new-price') && !e.target.classList.contains('new-discount')) return;
         const tr = e.target.closest('tr');
-        tr.classList.toggle('table-warning', parseFloat(e.target.value) !== parseFloat(tr.dataset.current));
+        const dis = tr.querySelector('.new-discount');
+        const changed = parseFloat(tr.querySelector('.new-price').value) !== parseFloat(tr.dataset.current)
+                     || (!dis.disabled && parseFloat(dis.value) !== parseFloat(tr.dataset.discount));
+        tr.classList.toggle('table-warning', changed);
         if (tr.classList.contains('table-warning')) tr.querySelector('.row-check').checked = true;
         countSel();
     });
@@ -230,9 +247,11 @@
         const round = parseFloat(document.getElementById('bulkRound').value) || 0;
         if (isNaN(val)) { alert('Enter a value first.'); return; }
 
+        const target = document.getElementById('bulkTarget').value;
         rows().forEach(tr => {
             if (!tr.querySelector('.row-check').checked) return;
-            const cur = parseFloat(tr.dataset.current) || 0;
+            if (target === 'discount' && tr.querySelector('.new-discount').disabled) return;   // item has no discount
+            const cur = parseFloat(target === 'discount' ? tr.dataset.discount : tr.dataset.current) || 0;
             let np = val;
             if (mode === 'inc_pct') np = cur * (1 + val / 100);
             if (mode === 'dec_pct') np = cur * (1 - val / 100);
@@ -241,10 +260,28 @@
             if (round > 0) np = Math.round(np / round) * round;
             np = Math.max(0, np);
 
-            const input = tr.querySelector('.new-price');
+            const input = tr.querySelector(target === 'discount' ? '.new-discount' : '.new-price');
             input.value = np.toFixed(2);
             input.dispatchEvent(new Event('input', { bubbles: true }));
         });
+    });
+
+    // keep each ticked item's discount % : new discount price = new price x (old discount / old price)
+    document.getElementById('keepPct')?.addEventListener('click', () => {
+        const round = parseFloat(document.getElementById('bulkRound').value) || 0;
+        let n = 0;
+        rows().forEach(tr => {
+            if (!tr.querySelector('.row-check').checked) return;
+            const dis = tr.querySelector('.new-discount'); if (dis.disabled) return;
+            const oldP = parseFloat(tr.dataset.current), oldD = parseFloat(tr.dataset.discount);
+            const newP = parseFloat(tr.querySelector('.new-price').value);
+            if (!(oldP > 0) || isNaN(oldD) || isNaN(newP)) return;
+            let nd = newP * (oldD / oldP);
+            if (round > 0) nd = Math.round(nd / round) * round;
+            dis.value = Math.min(Math.max(0, nd), newP).toFixed(2);
+            dis.dispatchEvent(new Event('input', { bubbles: true })); n++;
+        });
+        if (!n) alert('Tick items that have a discount price and a new price first.');
     });
 
     // submit only the ticked rows, as one JSON field
@@ -255,6 +292,7 @@
                 product_id:   tr.dataset.product,
                 variation_id: tr.dataset.variation || null,
                 new_price:    tr.querySelector('.new-price').value,
+                new_discount: tr.querySelector('.new-discount').disabled ? '' : tr.querySelector('.new-discount').value,
             }));
 
         if (!items.length) { e.preventDefault(); alert('Please tick at least one product.'); return; }
