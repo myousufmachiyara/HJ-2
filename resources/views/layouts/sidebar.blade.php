@@ -91,6 +91,7 @@
               @endcan
               @can('products.edit')
                 <li><a class="nav-link" href="{{ route('bulk-price.index') }}">Bulk Price Update</a></li>
+                <li><a class="nav-link" href="{{ route('bulk-category.index') }}">Bulk Category Fix</a></li>
               @endcan
               @if(auth()->user()->can('shopify_stores.index'))
                 <li><a class="nav-link" href="{{ route('shopify.settings') }}">Shopify Stores</a></li>
@@ -142,6 +143,9 @@
               @endcan
               @can('production_receiving.index')
                 <li><a class="nav-link" href="{{ route('production_receiving.index') }}">FG Receiving (CMT)</a></li>
+              @endcan
+              @can('production_receiving.index')
+                <li><a class="nav-link" href="{{ route('cmt_bills.index') }}">CMT Bill</a></li>
               @endcan
               @can('pdc_cheques.index')
                 <li><a class="nav-link" href="{{ route('pdc_cheques.index') }}">PDC Cheques</a></li>

@@ -17,15 +17,11 @@ use Illuminate\Support\Facades\Log;
 /**
  * Finished Goods Receiving (GRN) from a CMT vendor.
  *
- * Staff only enter: date, vendor, item, variation, qty.
- * The system then (behind the scenes):
- *   - values each line at the product's CMT cost × qty       → CMT vendor bill
- *   - consumes fabric (+ panna) at that vendor: qty × consumption from the fabric's article setup
- *   - adds the FG qty to the default warehouse
- *
- * Accounting
- *   DR Stock @ Warehouse   CR CMT Vendor              (CMT / making charges)
- *   DR Stock @ Warehouse   CR Stock @ Vendor (fabric)  (fabric moved into FG cost)
+ * Staff only enter: date, vendor, item, variation, qty. The CMT does not tell us
+ * fabric, PANNA or consumption, so receiving is PLAIN STOCK-IN at the default
+ * warehouse: no vendor bill, no fabric minus, no voucher. Cost stays 0 and the
+ * rows are "unbilled" until a CMT Bill (Purchase → CMT Bill) picks them up and
+ * posts the CMT amount, fabric consumption and the FG cost.
  */
 class ProductionReceivingController extends Controller
 {
@@ -37,6 +33,8 @@ class ProductionReceivingController extends Controller
             ->orderBy('id', 'desc')->get()
             ->map(function ($r) {
                 $r->total_amount = $r->details->sum(fn ($d) => $d->manufacturing_cost * $d->received_qty);
+                $r->bill_state   = $r->details->contains(fn ($d) => $d->cmt_bill_id) ? 'billed'
+                                 : ($r->details->contains(fn ($d) => $d->legacy_billed) ? 'old' : 'pending');
                 return $r;
             });
 
@@ -65,14 +63,14 @@ class ProductionReceivingController extends Controller
                 'received_by'      => auth()->id(),
             ]);
 
-            $missingCost = $this->saveDetails($receiving, $validated['item_details']);
+            $this->saveDetails($receiving, $validated['item_details']);
             $this->post($receiving->fresh('details'));
             \App\Support\Attachments::saveTo($receiving->attachments(), $request, 'production_receivings');
 
             DB::commit();
             Log::info('[FGReceiving] Created', ['id' => $receiving->id]);
 
-            return $this->redirectWithNotes($receiving, 'saved', $missingCost);
+            return $this->redirectWithNotes($receiving, 'saved');
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -84,6 +82,9 @@ class ProductionReceivingController extends Controller
     public function edit($id)
     {
         $receiving = ProductionReceiving::with(['details.product', 'details.variation', 'attachments'])->findOrFail($id);
+        if ($msg = $this->lockedReason($receiving)) {
+            return redirect()->route('production_receiving.index')->with('error', $msg);
+        }
         return view('production-receiving.edit', $this->formData() + compact('receiving'));
     }
 
@@ -95,6 +96,7 @@ class ProductionReceivingController extends Controller
         DB::beginTransaction();
         try {
             $receiving = ProductionReceiving::findOrFail($id);
+            if ($msg = $this->lockedReason($receiving)) throw new \RuntimeException($msg);
             // production_id / conveyance / discount are kept as they are (not on the simplified form)
             $receiving->update([
                 'vendor_id'   => $validated['vendor_id'],
@@ -103,7 +105,7 @@ class ProductionReceivingController extends Controller
             ]);
 
             $receiving->details()->delete();
-            $missingCost = $this->saveDetails($receiving, $validated['item_details']);
+            $this->saveDetails($receiving, $validated['item_details']);
             $this->post($receiving->fresh('details'));
             \App\Support\Attachments::removeFrom($receiving->attachments(), $request);
             \App\Support\Attachments::saveTo($receiving->attachments(), $request, 'production_receivings');
@@ -111,7 +113,7 @@ class ProductionReceivingController extends Controller
             DB::commit();
             Log::info('[FGReceiving] Updated', ['id' => $id]);
 
-            return $this->redirectWithNotes($receiving, 'updated', $missingCost);
+            return $this->redirectWithNotes($receiving, 'updated');
 
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -126,6 +128,9 @@ class ProductionReceivingController extends Controller
         DB::beginTransaction();
         try {
             $receiving = ProductionReceiving::findOrFail($id);
+            if ($receiving->details()->whereNotNull('cmt_bill_id')->exists()) {
+                throw new \RuntimeException('This GRN is already on a CMT Bill. Delete that CMT Bill first.');
+            }
             $this->deleteVoucherEntries($receiving);
             Inventory::clear($receiving);
             $receiving->details()->delete();
@@ -198,19 +203,25 @@ class ProductionReceivingController extends Controller
         return $pdf->Output('GRN_' . $receiving->grn_no . '.pdf', 'I');
     }
 
+
     // ── Helpers ───────────────────────────────────────────────────────
 
-    private function redirectWithNotes(ProductionReceiving $receiving, string $verb, array $missingCost)
+    /** GRNs that are on a CMT Bill, or were billed the old way, cannot be edited. */
+    private function lockedReason(ProductionReceiving $receiving): ?string
     {
-        $notes = [];
-        if ($missingCost) {
-            $notes[] = 'CMT cost is not set on: ' . implode(', ', $missingCost) . ' — set it in Products and re-save this GRN so the vendor bill is correct.';
+        if ($receiving->details()->whereNotNull('cmt_bill_id')->exists()) {
+            return $receiving->grn_no . ' is already on a CMT Bill. Delete that CMT Bill first to change it.';
         }
-        foreach ($this->fabricWarnings($receiving) as $w) {
-            $notes[] = 'Fabric over-use: ' . $w . '.';
+        if ($receiving->details()->where('legacy_billed', true)->exists()) {
+            return $receiving->grn_no . ' was billed the old way (before CMT Bill) and cannot be edited.';
         }
-        $redirect = redirect()->route('production_receiving.index')->with('success', 'Receiving ' . $receiving->grn_no . ' ' . $verb . '.');
-        return $notes ? $redirect->with('error', implode("\n", $notes)) : $redirect;
+        return null;
+    }
+
+    private function redirectWithNotes(ProductionReceiving $receiving, string $verb)
+    {
+        return redirect()->route('production_receiving.index')
+            ->with('success', 'Receiving ' . $receiving->grn_no . ' ' . $verb . '. Bill it from Purchase → CMT Bill.');
     }
 
     private function formData(): array
@@ -223,36 +234,15 @@ class ProductionReceivingController extends Controller
 
     private function validateRequest(Request $request): array
     {
-        $data = $request->validate([
+        return $request->validate([
             'vendor_id'                   => 'required|exists:chart_of_accounts,id',
             'rec_date'                    => 'required|date',
             'item_details'                => 'required|array|min:1',
             'item_details.*.product_id'   => 'required|exists:products,id',
             'item_details.*.variation_id' => 'nullable|exists:product_variations,id',
             'item_details.*.received_qty' => 'required|numeric|min:0.01',
-            'item_details.*.fabric_choice' => 'nullable|string|max:50',
-            'attachments.*'                => \App\Support\Attachments::RULE,
+            'attachments.*'               => \App\Support\Attachments::RULE,
         ]);
-
-        // The CMT vendor tells us which fabric + PANNA was used — required for every
-        // article whose category has PANNA consumption set up (Products → PANNA Consumption).
-        $errors = [];
-        foreach ($data['item_details'] as $i => $line) {
-            $options = \App\Services\PannaConsumption::optionsFor((int) $line['product_id'], !empty($line['variation_id']) ? (int) $line['variation_id'] : null);
-            if ($options->isEmpty()) continue;
-
-            $choice = (string) ($line['fabric_choice'] ?? '');
-            $valid  = $options->contains(fn ($o) => $o->value === $choice);
-            if (!$valid) {
-                $name = Product::whereKey($line['product_id'])->value('name');
-                $errors["item_details.$i.fabric_choice"] = 'Line ' . ($i + 1) . ': select the PANNA the CMT used for ' . $name . '.';
-            }
-        }
-        if ($errors) {
-            throw \Illuminate\Validation\ValidationException::withMessages($errors);
-        }
-
-        return $data;
     }
 
     private function nextGrnNo(): string
@@ -264,87 +254,24 @@ class ProductionReceivingController extends Controller
         return 'GRN-' . str_pad($last + 1, 5, '0', STR_PAD_LEFT);
     }
 
-    /**
-     * Save lines with the product's CMT cost and the fabric it consumes.
-     *
-     * Fabric + PANNA: the CMT vendor tells us which PANNA was used; staff select it
-     * on the line (fabric_choice "fabricId:pannaId"), limited to the options set up
-     * for that article on the fabric. Consumption comes from that setup.
-     * Returns names of products that have no CMT cost set.
-     */
-    private function saveDetails(ProductionReceiving $receiving, array $lines): array
+    /** Lines are SKU + qty only; cost and fabric are filled in by the CMT Bill. */
+    private function saveDetails(ProductionReceiving $receiving, array $lines): void
     {
-        $products  = Product::whereIn('id', collect($lines)->pluck('product_id'))->get()->keyBy('id');
-        $vendorLoc = Location::forAccount($receiving->vendor_id)
-            ?? Location::syncForAccount(ChartOfAccounts::findOrFail($receiving->vendor_id));
-        $missing   = [];
-
         foreach ($lines as $line) {
-            $product = $products[$line['product_id']];
-            $vid     = !empty($line['variation_id']) ? (int) $line['variation_id'] : null;
-            $qty     = (float) $line['received_qty'];
-
-            [$fabricId, $fabricVid, $perPiece] = $this->resolveFabric($product, $vid, $line['fabric_choice'] ?? null, $vendorLoc, $receiving);
-
-            $fabricQty  = $fabricId ? round($qty * $perPiece, 3) : 0;
-            $fabricRate = $fabricId ? Inventory::avgCost($fabricId, $fabricVid, $receiving->rec_date, $receiving) : 0;
-
-            if ((float) $product->cmt_cost <= 0) $missing[] = $product->name;
-
             ProductionReceivingDetail::create([
                 'production_receiving_id' => $receiving->id,
-                'product_id'              => $product->id,
-                'variation_id'            => $vid,
-                'fabric_id'               => $fabricId,
-                'fabric_variation_id'     => $fabricVid,
-                'fabric_qty'              => $fabricQty,
-                'fabric_rate'             => $fabricRate,
-                'manufacturing_cost'      => (float) $product->cmt_cost,
-                'received_qty'            => $qty,
+                'product_id'              => (int) $line['product_id'],
+                'variation_id'            => !empty($line['variation_id']) ? (int) $line['variation_id'] : null,
+                'fabric_qty'              => 0,
+                'fabric_rate'             => 0,
+                'manufacturing_cost'      => 0,
+                'received_qty'            => (float) $line['received_qty'],
+                'legacy_billed'           => false,
             ]);
         }
-
-        return array_values(array_unique($missing));
     }
 
-    /** @return array{0:?int,1:?int,2:float} fabric id, panna (variation) id, consumption per piece */
-    private function resolveFabric(Product $product, ?int $vid, ?string $choice, ?Location $vendorLoc, ProductionReceiving $receiving): array
-    {
-        // consumption by the article's CATEGORY + the PANNA the CMT used (+ size if set)
-        $options = \App\Services\PannaConsumption::optionsFor($product->id, $vid);
-
-        if ($options->isNotEmpty()) {
-            $picked = $choice ? $options->first(fn ($o) => $o->value === $choice) : null;
-            // validateRequest() guarantees a valid choice; first option only as a safety net
-            $picked ??= $options->first();
-            return [$picked->fabric_id, $picked->fabric_variation_id, (float) $picked->consumption];
-        }
-
-        // legacy: fabric + consumption stored on the product itself
-        if ($product->fabric_id && (float) $product->consumption > 0) {
-            return [(int) $product->fabric_id, null, (float) $product->consumption];
-        }
-
-        return [null, null, 0.0];
-    }
-
-    /** Fabric lines that would leave the CMT vendor below zero → warning text. */
-    private function fabricWarnings(ProductionReceiving $receiving): array
-    {
-        $vendorLoc = Location::forAccount($receiving->vendor_id);
-        if (!$vendorLoc) return [];
-
-        return $receiving->details()->whereNotNull('fabric_id')
-            ->get()->unique(fn ($d) => $d->fabric_id . '-' . $d->fabric_variation_id)
-            ->map(function ($d) use ($vendorLoc) {
-                $bal = Inventory::balance($vendorLoc->id, $d->fabric_id, $d->fabric_variation_id);
-                return $bal < -0.0005
-                    ? Inventory::itemLabel($d->fabric_id, $d->fabric_variation_id) . ' at ' . $vendorLoc->name . ' is now '
-                      . number_format($bal, 2) . ' (received pieces need ' . number_format(abs($bal), 2) . ' more than was issued)'
-                    : null;
-            })->filter()->values()->all();
-    }
-
+    /** Plain stock-in at the warehouse (cost 0 until the CMT Bill). No vouchers. */
     private function post(ProductionReceiving $receiving): void
     {
         $warehouse = Location::find($receiving->location_id) ?? Location::default();
@@ -352,59 +279,22 @@ class ProductionReceivingController extends Controller
             $receiving->location_id = $warehouse->id;
             $receiving->saveQuietly();
         }
-        $vendorLoc = Location::forAccount($receiving->vendor_id)
-            ?? Location::syncForAccount(ChartOfAccounts::findOrFail($receiving->vendor_id));
 
-        $cmtTotal    = 0.0;
-        $fabricTotal = 0.0;
-        $ledger      = [];
-
+        $ledger = [];
         foreach ($receiving->details as $d) {
-            $qty        = (float) $d->received_qty;
-            $cmt        = (float) $d->manufacturing_cost;
-            $fabricCost = (float) $d->fabric_qty * (float) $d->fabric_rate;
-
-            $cmtTotal    += $cmt * $qty;
-            $fabricTotal += $fabricCost;
-
             $ledger[] = [
                 'product_id'   => $d->product_id,
                 'variation_id' => $d->variation_id,
                 'location_id'  => $warehouse->id,
-                'qty'          => $qty,
-                'unit_cost'    => $qty > 0 ? $cmt + $fabricCost / $qty : $cmt,
+                'qty'          => (float) $d->received_qty,
+                'unit_cost'    => 0,
                 'remarks'      => 'FG received ' . $receiving->grn_no,
             ];
-
-            if ($d->fabric_id && $vendorLoc && (float) $d->fabric_qty > 0) {
-                $ledger[] = [
-                    'product_id'   => $d->fabric_id,
-                    'variation_id' => $d->fabric_variation_id,
-                    'location_id'  => $vendorLoc->id,
-                    'qty'          => -1 * (float) $d->fabric_qty,
-                    'unit_cost'    => (float) $d->fabric_rate,
-                    'remarks'      => 'Fabric consumed ' . $receiving->grn_no,
-                ];
-            }
         }
 
-        $conveyance = (float) ($receiving->convance_charges ?? 0);
-        $discount   = (float) ($receiving->bill_discount ?? 0);
-        $whAcc      = $warehouse->inventoryAccountId();
-
-        $entries = [
-            ['dr_id' => $whAcc, 'cr_id' => $receiving->vendor_id, 'amount' => round($cmtTotal, 2), 'remarks' => 'CMT charges — ' . $receiving->grn_no],
-            ['dr' => '502001', 'cr_id' => $receiving->vendor_id, 'amount' => $conveyance, 'remarks' => 'Conveyance — ' . $receiving->grn_no],
-            ['dr_id' => $receiving->vendor_id, 'cr' => '402001', 'amount' => $discount, 'remarks' => 'Discount — ' . $receiving->grn_no],
-        ];
-        if ($vendorLoc) {
-            $entries[] = ['dr_id' => $whAcc, 'cr_id' => $vendorLoc->inventoryAccountId(), 'amount' => round($fabricTotal, 2),
-                          'remarks' => 'Fabric consumed at ' . $vendorLoc->name . ' — ' . $receiving->grn_no];
-        }
-
-        $this->syncVoucherEntries($receiving, 'production_receiving', $receiving->rec_date, $entries);
+        $this->deleteVoucherEntries($receiving);
         Inventory::sync($receiving, $receiving->rec_date, $ledger);
 
-        Log::info('[FGReceiving] Posted', ['id' => $receiving->id, 'cmt' => $cmtTotal, 'fabric' => $fabricTotal]);
+        Log::info('[FGReceiving] Posted', ['id' => $receiving->id]);
     }
 }

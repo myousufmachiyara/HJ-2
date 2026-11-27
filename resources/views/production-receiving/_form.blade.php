@@ -1,15 +1,14 @@
 {{--
   Finished Goods Receiving form (create + edit).
-  Only receiving details + item / variation / qty. CMT cost and fabric
-  consumption are applied automatically from the product on save.
+  SKU + qty only. The CMT does not tell us fabric / PANNA, so nothing is asked here;
+  the CMT amount, fabric consumption and FG cost are done in Purchase → CMT Bill.
 --}}
 @php
   $rec   = $receiving ?? null;
   $lines = old('item_details', $rec
       ? $rec->details->map(fn($d) => ['product_id' => $d->product_id, 'variation_id' => $d->variation_id, 'received_qty' => $d->received_qty,
-                                      'variation_label' => $d->variation->sku ?? null,
-                                      'fabric_choice' => $d->fabric_id ? $d->fabric_id . ':' . ($d->fabric_variation_id ?? '') : ''])->all()
-      : [['product_id' => '', 'variation_id' => '', 'received_qty' => '', 'fabric_choice' => '']]);
+                                      'variation_label' => $d->variation->sku ?? null])->all()
+      : [['product_id' => '', 'variation_id' => '', 'received_qty' => '']]);
 @endphp
 
 @if($errors->any())
@@ -58,7 +57,6 @@
           <th width="18%">Barcode / Code</th>
           <th>Item</th>
           <th width="20%">Variation</th>
-          <th width="24%">PANNA used <small class="text-muted">(as told by CMT)</small></th>
           <th width="10%">Qty</th>
           <th width="5%"></th>
         </tr>
@@ -83,14 +81,13 @@
                 @endif
               </select>
             </td>
-            <td class="fabric-cell" data-choice="{{ $line['fabric_choice'] ?? '' }}"><input type="hidden" name="item_details[{{ $i }}][fabric_choice]" class="fabric-choice" value="{{ $line['fabric_choice'] ?? '' }}"><small class="text-muted fabric-label">—</small></td>
             <td><input type="number" name="item_details[{{ $i }}][received_qty]" class="form-control received-qty" step="any" min="0" value="{{ $line['received_qty'] }}" required></td>
             <td><button type="button" class="btn btn-danger btn-sm remove-row-btn"><i class="fas fa-times"></i></button></td>
           </tr>
         @endforeach
       </tbody>
       <tfoot>
-        <tr><th colspan="4" class="text-end">Total Pcs</th><th id="total_pcs">0</th><th></th></tr>
+        <tr><th colspan="3" class="text-end">Total Pcs</th><th id="total_pcs">0</th><th></th></tr>
       </tfoot>
     </table>
   </div>
@@ -110,7 +107,6 @@
       </select>
     </td>
     <td><select name="item_details[__i__][variation_id]" class="form-control variation-select"><option value="">No Variation</option></select></td>
-    <td class="fabric-cell" data-choice=""><input type="hidden" name="item_details[__i__][fabric_choice]" class="fabric-choice" value=""><small class="text-muted fabric-label">—</small></td>
     <td><input type="number" name="item_details[__i__][received_qty]" class="form-control received-qty" step="any" min="0" required></td>
     <td><button type="button" class="btn btn-danger btn-sm remove-row-btn"><i class="fas fa-times"></i></button></td>
   </tr>
@@ -135,9 +131,6 @@
       row.removeData('preselect');
     });
     $(document).on('input', '.received-qty', recalc);
-    $(document).on('change', '.variation-select', function () { loadFabric($(this).closest('tr')); });
-    $(document).on('change', '.fabric-select', function () { $(this).closest('td').find('.fabric-choice').val($(this).val()); });
-    $('select[name="vendor_id"]').on('change', function () { $('#receivingBody tr').each(function () { loadFabric($(this), true); }); });
     $(document).on('click', '.remove-row-btn', function () {
       if ($('#receivingBody tr').length > 1) { $(this).closest('tr').remove(); recalc(); }
     });
@@ -212,45 +205,6 @@
       $var.html(opts);
       if (preselectId) $var.val(String(preselectId));
       $var.trigger('change.select2');
-      loadFabric(row);
-    });
-  }
-
-  // Fabric + PANNA this line consumed at the CMT — the vendor tells us. Options = fabrics in a
-  // PANNA that has consumption for this article's category (Products → PANNA Consumption);
-  // the ones this CMT holds are listed first.
-  function loadFabric(row, keepChoice = true) {
-    const pid = row.find('.product-select').val();
-    const $cell = row.find('.fabric-cell');
-    const $hidden = $cell.find('.fabric-choice');
-    const current = keepChoice ? ($hidden.val() || $cell.data('choice') || '') : '';
-    $cell.find('.fabric-select').each(function () { if ($(this).hasClass('select2-hidden-accessible')) $(this).select2('destroy'); }).remove();
-    const $label = $cell.find('.fabric-label');
-    if (!pid) { $hidden.val(''); $label.text('—'); return; }
-    $.get('{{ route('fabric.options') }}', { product_id: pid, variation_id: row.find('.variation-select').val() || '', vendor_id: $('select[name="vendor_id"]').val() || '' }, function (opts) {
-      if (!opts.length) {
-        $hidden.val('');
-        $label.html('<span class="text-muted">no PANNA consumption for this category</span>').attr('title', 'Set it on Products → PANNA Consumption');
-        return;
-      }
-      $label.text('');
-      const fmt = o => o.label + ' · ' + o.consumption + '/pc' + (o.at_vendor !== null ? ' · at CMT ' + parseFloat(o.at_vendor).toFixed(2) : '');
-      const $sel = $('<select class="form-control form-control-sm fabric-select" required></select>');
-      $sel.append($('<option value="">Select fabric &amp; PANNA used</option>'));
-      const atCmt = opts.filter(o => o.at_vendor !== null && parseFloat(o.at_vendor) > 0);
-      const others = opts.filter(o => !(o.at_vendor !== null && parseFloat(o.at_vendor) > 0));
-      const add = (list, label) => {
-        if (!list.length) return;
-        const $g = label ? $('<optgroup>').attr('label', label) : $sel;
-        list.forEach(o => $g.append($('<option>').val(o.value).text(fmt(o))));
-        if (label) $sel.append($g);
-      };
-      if (atCmt.length && others.length) { add(atCmt, 'At this CMT'); add(others, 'Other fabrics'); } else { add(opts, null); }
-      const chosen = opts.some(o => o.value === current) ? current : (atCmt.length === 1 ? atCmt[0].value : (opts.length === 1 ? opts[0].value : ''));
-      $sel.val(chosen);
-      $hidden.val(chosen);
-      $cell.append($sel);
-      $sel.select2({ width: '100%', dropdownAutoWidth: true });
     });
   }
 

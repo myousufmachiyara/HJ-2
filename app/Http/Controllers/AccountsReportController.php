@@ -134,6 +134,7 @@ class AccountsReportController extends Controller
             'sale_return'          => 'Sale Return',
             'production'           => 'Production Order',
             'production_receiving' => 'FG Receiving (CMT)',
+            'cmt_bill'             => 'CMT Bill',
             'production_return'    => 'Production Return',
             'production_wastage'   => 'Wastage Return',
             'receipt'              => 'Receipt',
@@ -723,7 +724,7 @@ class AccountsReportController extends Controller
 
         $productionOut = (float) Voucher::whereBetween('date', [$from, $to])
             ->whereIn('ac_cr_sid', $cashBankIds)
-            ->whereIn('voucher_type', ['production_receiving', 'production_return'])
+            ->whereIn('voucher_type', ['production_receiving', 'production_return', 'cmt_bill'])
             ->whereNull('deleted_at')
             ->sum('amount');
 

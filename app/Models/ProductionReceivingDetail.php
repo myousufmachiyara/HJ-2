@@ -20,6 +20,8 @@ class ProductionReceivingDetail extends Model
         'manufacturing_cost',
         'received_qty',
         'remarks',
+        'cmt_bill_id',
+        'legacy_billed',
     ];
 
     public function receiving()

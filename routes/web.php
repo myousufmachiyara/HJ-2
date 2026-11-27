@@ -83,6 +83,11 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
     Route::get('/products/bulk-price',         [\App\Http\Controllers\BulkPriceController::class, 'index'])->name('bulk-price.index')->middleware('check.permission:products.edit');
     Route::post('/products/bulk-price/export', [\App\Http\Controllers\BulkPriceController::class, 'updateAndExport'])->name('bulk-price.export')->middleware('check.permission:products.edit');
+    // ── Bulk fix of product categories (sheet → review → apply) ──────────
+    Route::get('/products/bulk-category',          [\App\Http\Controllers\BulkCategoryController::class, 'index'])->name('bulk-category.index')->middleware('check.permission:products.edit');
+    Route::get('/products/bulk-category/export',   [\App\Http\Controllers\BulkCategoryController::class, 'export'])->name('bulk-category.export')->middleware('check.permission:products.edit');
+    Route::post('/products/bulk-category/preview', [\App\Http\Controllers\BulkCategoryController::class, 'preview'])->name('bulk-category.preview')->middleware('check.permission:products.edit');
+    Route::post('/products/bulk-category/apply',   [\App\Http\Controllers\BulkCategoryController::class, 'apply'])->name('bulk-category.apply')->middleware('check.permission:products.edit');
     // ── LAAM weekly sale settlement (upload LAAM ledger export) ───────
     Route::prefix('laam_invoices')->name('laam_invoices.')->group(function () {
         $c = \App\Http\Controllers\LaamInvoiceController::class;
@@ -228,6 +233,17 @@ Route::middleware(['auth'])->group(function () {
         Route::delete("$uri/$param",    [$controller, 'destroy'])->middleware("check.permission:$permission.delete")->name("$uri.destroy");
         Route::get("$uri/$param/print", [$controller, 'print'])  ->middleware("check.permission:$permission.print") ->name("$uri.print");
     }
+
+    // ── CMT Bill (Purchase → CMT Bill) — uses the FG Receiving permissions ──
+    Route::prefix('cmt_bills')->name('cmt_bills.')->group(function () {
+        $c = \App\Http\Controllers\CmtBillController::class;
+        Route::get('/',            [$c, 'index'])  ->middleware('check.permission:production_receiving.index') ->name('index');
+        Route::get('/create',      [$c, 'create']) ->middleware('check.permission:production_receiving.create')->name('create');
+        Route::post('/',           [$c, 'store'])  ->middleware('check.permission:production_receiving.create')->name('store');
+        Route::get('/{id}',        [$c, 'show'])   ->middleware('check.permission:production_receiving.index') ->name('show');
+        Route::get('/{id}/print',  [$c, 'print'])  ->middleware('check.permission:production_receiving.print') ->name('print');
+        Route::delete('/{id}',     [$c, 'destroy'])->middleware('check.permission:production_receiving.delete')->name('destroy');
+    });
 
     // ── Reports ───────────────────────────────────────────────────────
     Route::prefix('reports')->name('reports.')->group(function () {

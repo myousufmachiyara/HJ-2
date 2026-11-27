@@ -30,7 +30,7 @@
                 <th>Receiving Date</th>
                 <th>Vendor</th>
                 <th>Total Qty</th>
-                @can('reports.accounts')<th>CMT Bill</th>@endcan
+                <th>CMT Bill</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -47,7 +47,11 @@
                   @endforeach
                 </td>
                 <td>{{ $rec->details->sum('received_qty') }}</td>
-                @can('reports.accounts')<td>{{ number_format($rec->total_amount, 2) }}</td>@endcan
+                <td>
+                  @if($rec->bill_state === 'billed') <span class="badge bg-success">Billed</span>
+                  @elseif($rec->bill_state === 'old') <span class="badge bg-secondary" title="Billed the old way">Old</span>
+                  @else <span class="badge bg-warning text-dark">Not billed</span> @endif
+                </td>
                 <td>
                   <a href="{{ route('production_receiving.print', $rec->id) }}" target="_blank" class="text-success"><i class="fas fa-print"></i></a>
                   <a href="{{ route('production_receiving.edit', $rec->id) }}" class="text-primary"><i class="fa fa-edit"></i></a>
