@@ -103,7 +103,7 @@
            here — 0.9in is shorter than either earlier measurement. */
         .barcode-label strong,
         .barcode-label small {
-            font-weight: 500;
+            font-weight: 800;
             display: block;
             width: 100%;
             /* Flex items default to `min-width: auto`, which means the
@@ -125,6 +125,16 @@
         .barcode-label strong {
             font-size: 10px;
             font-weight: 500;
+            /* Long product name: use a second line (max 2), then cut with "…".
+               Two lines of 10px at 1.15 line-height add ~3mm, which fits in the
+               ~3.5mm headroom of the 0.9in label, so nothing else moves. */
+            white-space: normal;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            line-height: 1.1;
+            word-break: break-word;
         }
 
         .barcode-label small {
@@ -255,6 +265,10 @@
         html[data-ink="1"] .barcode-label .barcode-bars path { stroke-width: calc(var(--dot) * 0.6); }
         html[data-ink="2"] .barcode-label .barcode-bars path { stroke-width: calc(var(--dot) * 1.2); }
 
+        /* name wraps to 2 lines → give the barcode a little less height so it all fits */
+        .barcode-label.long-name .barcode-bars,
+        .barcode-label.long-name img { height: 7.4mm; }
+
         .no-print {
             text-align: center;
             margin: 16px 0;
@@ -362,7 +376,7 @@
 </div>
 
 @foreach($barcodes as $barcode)
-    <div class="barcode-label">
+    <div class="barcode-label{{ mb_strlen((string) $barcode['product']) > 24 ? ' long-name' : '' }}">
         <strong>{{ $barcode['product'] }}</strong>
         @if(!empty($barcode['sku']))
             <small class="sku">{{ $barcode['sku'] }}</small>
