@@ -143,9 +143,10 @@
 
         /* variation SKU, shown under the item name (replaces the old brand line) */
         .barcode-label .sku {
-            font-size: 8px;
+            font-size: 10px;
             letter-spacing: 0.2px;
             color: #000;
+            margin-bottom: 0.5mm;
         }
 
         /* Human-readable barcode number in a monospace face with a little
@@ -155,7 +156,7 @@
         .barcode-label .barcode-number {
             font-family: 'Courier New', Courier, monospace;
             font-size: 11px;
-            margin-top: 0.5mm;
+            margin-top: 0.8mm;
         }
 
         /* The image is deliberately narrower than the label's content
