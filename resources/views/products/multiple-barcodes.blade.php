@@ -103,7 +103,7 @@
            here — 0.9in is shorter than either earlier measurement. */
         .barcode-label strong,
         .barcode-label small {
-            font-weight: 800;
+            font-weight: 500;
             display: block;
             width: 100%;
             /* Flex items default to `min-width: auto`, which means the
