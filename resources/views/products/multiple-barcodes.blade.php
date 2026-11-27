@@ -269,6 +269,23 @@
         .barcode-label.long-name .barcode-bars,
         .barcode-label.long-name img { height: 7.4mm; }
 
+        /* Sharp bitmap barcode: the bars are painted into a bitmap exactly one
+           pixel per printer dot (406 x 72 at 203 dpi) and shown 1:1, never
+           smoothed or resampled — every row of the bars is identical, so the
+           bar edges are perfectly straight on paper. */
+        .barcode-label img.barcode-img {
+            display: block;
+            flex: none;
+            width: 2in;
+            max-width: none;
+            height: calc(72in / {{ $printerDpi }});
+            object-fit: fill;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            margin: 0.4mm -1.1mm 0.2mm;
+        }
+        .barcode-label.long-name img.barcode-img { height: calc(58in / {{ $printerDpi }}); }
+
         .no-print {
             text-align: center;
             margin: 16px 0;
@@ -394,6 +411,41 @@
         <small class="barcode-number">{{ $barcode['barcodeText'] }}</small>
     </div>
 @endforeach
+
+
+<script>
+// Turn each vector barcode into a pixel-exact bitmap (1 pixel = 1 printer dot)
+// so the printer driver has nothing to smooth: bar edges print straight.
+(function () {
+    var DPI = {{ $printerDpi }}, W = Math.round(2 * DPI);
+    var svgs = Array.prototype.slice.call(document.querySelectorAll('svg.barcode-bars'));
+    var data = svgs.map(function (svg) {
+        var d = svg.querySelector('path').getAttribute('d'), rects = [], m, re = /M(\d+) 0h(\d+)/g;
+        while ((m = re.exec(d))) rects.push([+m[1], +m[2]]);
+        return { svg: svg, rects: rects, img: null, long: svg.parentNode.classList.contains('long-name') };
+    });
+    function paint(item, ink) {
+        var H = Math.round((item.long ? 58 : 72) * DPI / 203);
+        var c = document.createElement('canvas'); c.width = W; c.height = H;
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.fillStyle = '#000';
+        item.rects.forEach(function (r, i) {
+            var x = r[0], w = r[1], next = item.rects[i + 1], gap = next ? next[0] - (x + w) : 9;
+            // Dark / Extra dark: thicken a bar by whole dots, only where the gap after it can spare one
+            if (ink >= 1 && gap >= 2) w += 1;
+            if (ink >= 2 && gap >= 3) w += 1;
+            g.fillRect(x, 0, w, H);
+        });
+        if (!item.img) {
+            item.img = document.createElement('img');
+            item.img.className = 'barcode-img'; item.img.alt = 'barcode';
+            item.svg.parentNode.replaceChild(item.img, item.svg);
+        }
+        item.img.src = c.toDataURL('image/png');
+    }
+    function all() { var ink = +(document.documentElement.getAttribute('data-ink') || 1); data.forEach(function (i) { paint(i, ink); }); }
+    try { all(); document.getElementById('inkLevel').addEventListener('change', all); } catch (e) { /* keep the vector bars */ }
+})();
+</script>
 
 </body>
 </html>
