@@ -76,6 +76,7 @@
                     <td><strong>{{ $r['product']->name }}</strong><br><small class="text-muted">{{ $r['product']->sku }}</small>
                       @if($r['same_size_other_sku'])<br><small class="text-warning">{{ $r['same_size_other_sku'] }} size(s) are on Shopify with a different SKU — use Fix SKUs</small>@endif
                       @if($r['note'])<br><small class="text-danger">{{ $r['note'] }}</small>@endif
+                      @if(!empty($r['duplicates']))<br><small class="text-danger">Same size twice in the software — only the first is added. Not added: {{ implode(', ', $r['duplicates']) }}. Merge or delete the duplicate in Billtrix.</small>@endif
                     </td>
                     <td>
                       @foreach($r['missing'] as $m)

@@ -58,7 +58,7 @@ class ShopifyMissingVariants
 
     private function compare(Product $p, ?array $shop): array
     {
-        $row = ['product' => $p, 'shopify_id' => (string) $p->shopify_product_id, 'missing' => [], 'same_size_other_sku' => 0, 'note' => null];
+        $row = ['product' => $p, 'shopify_id' => (string) $p->shopify_product_id, 'missing' => [], 'same_size_other_sku' => 0, 'duplicates' => [], 'note' => null];
 
         if (!$shop) { $row['note'] = 'Not found on Shopify (deleted there?).'; return $row; }
 
@@ -83,6 +83,7 @@ class ShopifyMissingVariants
             $combos[implode('|', $vals)] = true;
         }
 
+        $queued = [];
         foreach ($p->variations->sortBy('id') as $v) {
             $v->setRelation('product', $p);
             $values = $this->valuesFor($v, $optionNames);
@@ -93,6 +94,11 @@ class ShopifyMissingVariants
             $hasCode = ($v->sku && isset($codes[ShopifyPushPlan::key($v->sku)])) || ($v->barcode && isset($codes[ShopifyPushPlan::key($v->barcode)]));
             if ($hasCode) continue;
             if (isset($combos[implode('|', array_map(fn ($x) => $this->norm($x), $values))])) { $row['same_size_other_sku']++; continue; }
+            // two variations in the software with the SAME size (e.g. KHA-X-10-11Y and KHA-Y-10-11Y-0):
+            // Shopify allows one per size, so only the first is added and the rest are reported
+            $key = implode('|', array_map(fn ($x) => $this->norm($x), $values));
+            if (isset($queued[$key])) { $row['duplicates'][] = $v->sku . ' (same size as ' . $queued[$key] . ')'; continue; }
+            $queued[$key] = $v->sku;
             $row['missing'][] = ['variation' => $v, 'values' => $values];
         }
         return $row;
@@ -132,6 +138,7 @@ class ShopifyMissingVariants
         $todo = array_values(array_filter($row['missing'], fn ($m) => in_array($m['variation']->id, $variationIds, true)));
         $created = 0;
         $errors = [];
+        if ($row['duplicates']) $errors[] = "{$p->sku}: not added, same size twice in the software — " . implode(', ', $row['duplicates']);
 
         foreach (array_chunk($todo, 100) as $batch) {
             $variants = array_map(function ($m) {
@@ -146,28 +153,48 @@ class ShopifyMissingVariants
                 return $in;
             }, $batch);
 
-            $data = $this->store->graphql(<<<'GQL'
-                mutation AddSizes($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-                  productVariantsBulkCreate(productId: $productId, variants: $variants) {
-                    productVariants { id sku }
-                    userErrors { field message }
-                  }
-                }
-                GQL, ['productId' => 'gid://shopify/Product/' . $p->shopify_product_id, 'variants' => $variants]);
-
-            $res = $data['productVariantsBulkCreate'] ?? [];
+            $res = $this->createBatch($p, $variants);
             if (!empty($res['userErrors'])) {
-                $errors[] = "{$p->sku}: " . collect($res['userErrors'])->pluck('message')->filter()->implode('; ');
+                // Shopify rejects the WHOLE batch when one size is bad — retry one by one so the good ones still go in
+                foreach ($batch as $i => $m) {
+                    $one = $this->createBatch($p, [$variants[$i]]);
+                    if (!empty($one['userErrors'])) {
+                        $errors[] = "{$p->sku} {$m['variation']->sku}: " . collect($one['userErrors'])->pluck('message')->filter()->implode('; ');
+                        continue;
+                    }
+                    $created += $this->saveIds($p, $one['productVariants'] ?? []);
+                }
                 continue;
             }
-            foreach ($res['productVariants'] ?? [] as $node) {
-                $created++;
-                if (!empty($node['sku'])) {
-                    ProductVariation::where('product_id', $p->id)->where('sku', $node['sku'])
-                        ->update(['shopify_variant_id' => Str::afterLast($node['id'], '/')]);
-                }
-            }
+            $created += $this->saveIds($p, $res['productVariants'] ?? []);
         }
         return ['created' => $created, 'errors' => $errors];
+    }
+
+    private function createBatch(Product $p, array $variants): array
+    {
+        $data = $this->store->graphql(<<<'GQL'
+            mutation AddSizes($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkCreate(productId: $productId, variants: $variants) {
+                productVariants { id sku }
+                userErrors { field message }
+              }
+            }
+            GQL, ['productId' => 'gid://shopify/Product/' . $p->shopify_product_id, 'variants' => $variants]);
+
+        return $data['productVariantsBulkCreate'] ?? [];
+    }
+
+    private function saveIds(Product $p, array $nodes): int
+    {
+        $n = 0;
+        foreach ($nodes as $node) {
+            $n++;
+            if (!empty($node['sku'])) {
+                ProductVariation::where('product_id', $p->id)->where('sku', $node['sku'])
+                    ->update(['shopify_variant_id' => Str::afterLast($node['id'], '/')]);
+            }
+        }
+        return $n;
     }
 }
