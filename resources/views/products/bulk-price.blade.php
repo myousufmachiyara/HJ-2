@@ -46,6 +46,16 @@
                 </select>
             </div>
 
+            <div class="col-md-2">
+                <label class="form-label">Brand</label>
+                <select name="brand" class="form-control">
+                    <option value="">All</option>
+                    @foreach($brands as $b)
+                        <option value="{{ $b }}" @selected(mb_strtolower(trim((string) request('brand'))) === mb_strtolower(trim($b)))>{{ $b }}</option>
+                    @endforeach
+                </select>
+            </div>
+
             <div class="col-md-1">
                 <label class="form-label">Stock min</label>
                 <input type="number" step="any" name="stock_min" value="{{ request('stock_min') }}" class="form-control" placeholder="&gt;0">

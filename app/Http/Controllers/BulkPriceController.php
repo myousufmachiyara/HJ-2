@@ -56,6 +56,8 @@ class BulkPriceController extends Controller
         return view('products.bulk-price', [
             'locations'  => $locations,
             'categories' => $categories,
+            'brands'     => Product::whereNotNull('brand')->where('brand', '!=', '')->distinct()->orderBy('brand')->pluck('brand')
+                                ->unique(fn ($b) => mb_strtolower(trim($b)))->values(),
             'attributes' => Attribute::with(['values' => fn ($q) => $q->orderBy('id')])->orderBy('name')->get(),
             'rows'       => $rows,
             'actualIsCompareAt' => self::ACTUAL_IS_COMPARE_AT,
@@ -244,6 +246,7 @@ class BulkPriceController extends Controller
 
         $itemType   = $r->input('item_type', 'fg');
         $categoryId = $r->input('category_id');
+        $brand      = mb_strtolower(trim((string) $r->input('brand')));
 
         // Attribute filter (multi-select): a size / colour / … must match one of the ticked values
         // of its attribute (OR inside one attribute, AND between different attributes).
@@ -252,7 +255,7 @@ class BulkPriceController extends Controller
         $priceTo   = $r->filled('price_to')   ? (float) $r->price_to   : null;
         $priceOn   = $r->input('price_on') === 'discount' ? 'discount' : 'actual';
 
-        $rows = $stock->map(function ($s) use ($products, $variations, $sold, $itemType, $categoryId, $allowedVariations, $priceFrom, $priceTo, $priceOn) {
+        $rows = $stock->map(function ($s) use ($products, $variations, $sold, $itemType, $categoryId, $brand, $allowedVariations, $priceFrom, $priceTo, $priceOn) {
             $p = $products[$s->product_id] ?? null;
             if (!$p) return null;                                   // deleted product
 
@@ -261,6 +264,7 @@ class BulkPriceController extends Controller
 
             if ($itemType === 'fg' && !in_array($p->item_type, ['fg', null, ''], true)) return null;
             if ($categoryId && (int) $p->category_id !== (int) $categoryId) return null;
+            if ($brand !== '' && mb_strtolower(trim((string) $p->brand)) !== $brand) return null;
 
             if ($allowedVariations !== null && (!$v || !isset($allowedVariations[$v->id]))) return null;
 
