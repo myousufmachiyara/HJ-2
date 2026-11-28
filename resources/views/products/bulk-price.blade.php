@@ -93,6 +93,34 @@
                 </select>
             </div>
 
+            <div class="col-md-4">
+                <label class="form-label">Attributes <small class="text-muted">(size, colour… — pick several)</small></label>
+                <select name="attr_values[]" id="attrValues" class="form-control" multiple>
+                    @foreach($attributes as $a)
+                        <optgroup label="{{ $a->name }}">
+                            @foreach($a->values as $val)
+                                <option value="{{ $val->id }}" @selected(in_array($val->id, array_map('intval', (array) request('attr_values', []))))>{{ $val->value }}</option>
+                            @endforeach
+                        </optgroup>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Price from</label>
+                <input type="number" step="any" min="0" name="price_from" value="{{ request('price_from') }}" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Price to</label>
+                <input type="number" step="any" min="0" name="price_to" value="{{ request('price_to') }}" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Range on</label>
+                <select name="price_on" class="form-control">
+                    <option value="actual">Price before discount</option>
+                    <option value="discount" @selected(request('price_on') == 'discount')>Price after discount</option>
+                </select>
+            </div>
+
             <div class="col-md-2">
                 <button class="btn btn-primary w-100"><i class="fa fa-filter"></i> Filter</button>
             </div>
@@ -204,6 +232,10 @@
 </div>
 
 <script>
+window.addEventListener('load', function () {
+    // multi-select with search for the attribute filter (plain multi-select if select2 is not loaded)
+    if (window.jQuery && jQuery.fn.select2) jQuery('#attrValues').select2({ width: '100%', placeholder: 'All attributes' });
+});
 (function () {
     const rows     = () => Array.from(document.querySelectorAll('#priceTable tbody tr'));
     const visible  = tr => tr.style.display !== 'none';

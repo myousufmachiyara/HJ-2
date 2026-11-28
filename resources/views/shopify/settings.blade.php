@@ -248,6 +248,15 @@
                                             Send Pictures
                                         </button>
                                     </form>
+                                    <form action="{{ route('shopify.store.publish', $store->id) }}" method="POST"
+                                          onsubmit="return confirm('Publish all pushed products of {{ addslashes($store->shop_name) }} to the Online Store so they can show on the website?')">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-info" title="Products pushed from the software are in no sales channel until published">
+                                            Publish to Website
+                                        </button>
+                                    </form>
+                                    <a href="{{ route('shopify.missing-sizes', ['store_id' => $store->id]) }}" class="btn btn-sm btn-outline-dark"
+                                       title="Sizes / SKUs in the software that are missing on Shopify">Missing Sizes</a>
                                     <form action="{{ route('shopify.store.fix-skus', $store->id) }}" method="POST"
                                           onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerText='Fixing… please wait';">
                                         @csrf
@@ -315,6 +324,10 @@
                                     <span class="badge bg-primary">Push ↑</span>
                                 @elseif($log->direction === 'prices')
                                     <span class="badge bg-success">Prices ↑</span>
+                                @elseif($log->direction === 'publish')
+                                    <span class="badge bg-warning text-dark">Publish ↑</span>
+                                @elseif($log->direction === 'variants')
+                                    <span class="badge bg-dark">Sizes ↑</span>
                                 @elseif($log->direction === 'pictures')
                                     <span class="badge bg-info text-white">Pictures ↑</span>
                                 @else

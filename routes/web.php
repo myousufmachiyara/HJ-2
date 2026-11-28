@@ -311,6 +311,15 @@ Route::middleware(['auth'])->group(function () {
         Route::post('store/{id}/push-pictures', [ShopifyStoreController::class, 'pushPictures'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.push-pictures');
+        Route::post('store/{id}/publish', [ShopifyStoreController::class, 'publishProducts'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('store.publish');
+        Route::get('missing-sizes', [ShopifyStoreController::class, 'missingSizes'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('missing-sizes');
+        Route::post('store/{id}/missing-sizes', [ShopifyStoreController::class, 'pushMissingSizes'])
+            ->middleware('check.permission:shopify_stores.edit')
+            ->name('missing-sizes.push');
         Route::put('store/{id}/brands', [ShopifyStoreController::class, 'saveBrands'])
             ->middleware('check.permission:shopify_stores.edit')
             ->name('store.brands');

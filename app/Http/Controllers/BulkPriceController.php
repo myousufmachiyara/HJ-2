@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exports\VariantPriceExport;
+use App\Models\Attribute;
 use App\Models\Location;
 use App\Models\Product;
 use App\Models\ProductCategory;
@@ -55,6 +56,7 @@ class BulkPriceController extends Controller
         return view('products.bulk-price', [
             'locations'  => $locations,
             'categories' => $categories,
+            'attributes' => Attribute::with(['values' => fn ($q) => $q->orderBy('id')])->orderBy('name')->get(),
             'rows'       => $rows,
             'actualIsCompareAt' => self::ACTUAL_IS_COMPARE_AT,
         ]);
@@ -180,6 +182,25 @@ class BulkPriceController extends Controller
         ];
     }
 
+    /**
+     * Variation ids (as keys) having the ticked attribute values; null = no attribute filter.
+     * Several values of ONE attribute (2-3Y, 3-4Y) = any of them; different attributes must all match.
+     */
+    private function variationsWithAttributes(array $valueIds): ?array
+    {
+        $valueIds = array_values(array_filter(array_map('intval', $valueIds)));
+        if (!$valueIds) return null;
+
+        $byAttr = DB::table('attribute_values')->whereIn('id', $valueIds)->get(['id', 'attribute_id'])->groupBy('attribute_id');
+        $result = null;
+        foreach ($byAttr as $ids) {
+            $vars = DB::table('product_variation_attribute_values')
+                ->whereIn('attribute_value_id', $ids->pluck('id'))->pluck('product_variation_id')->flip()->all();
+            $result = $result === null ? $vars : array_intersect_key($result, $vars);
+        }
+        return $result ?? [];
+    }
+
     /** One row per product / variation sitting at the chosen location, filtered + sorted. */
     private function rows(Request $r)
     {
@@ -224,7 +245,14 @@ class BulkPriceController extends Controller
         $itemType   = $r->input('item_type', 'fg');
         $categoryId = $r->input('category_id');
 
-        $rows = $stock->map(function ($s) use ($products, $variations, $sold, $itemType, $categoryId) {
+        // Attribute filter (multi-select): a size / colour / … must match one of the ticked values
+        // of its attribute (OR inside one attribute, AND between different attributes).
+        $allowedVariations = $this->variationsWithAttributes((array) $r->input('attr_values', []));
+        $priceFrom = $r->filled('price_from') ? (float) $r->price_from : null;
+        $priceTo   = $r->filled('price_to')   ? (float) $r->price_to   : null;
+        $priceOn   = $r->input('price_on') === 'discount' ? 'discount' : 'actual';
+
+        $rows = $stock->map(function ($s) use ($products, $variations, $sold, $itemType, $categoryId, $allowedVariations, $priceFrom, $priceTo, $priceOn) {
             $p = $products[$s->product_id] ?? null;
             if (!$p) return null;                                   // deleted product
 
@@ -234,7 +262,17 @@ class BulkPriceController extends Controller
             if ($itemType === 'fg' && !in_array($p->item_type, ['fg', null, ''], true)) return null;
             if ($categoryId && (int) $p->category_id !== (int) $categoryId) return null;
 
+            if ($allowedVariations !== null && (!$v || !isset($allowedVariations[$v->id]))) return null;
+
             $price = $this->prices($p, $v);
+
+            // price range — on the price before discount, or on what the customer pays (after discount)
+            if ($priceFrom !== null || $priceTo !== null) {
+                $check = $priceOn === 'discount' ? ($price['discount'] ?? $price['actual']) : $price['actual'];
+                if ($check === null) return null;
+                if ($priceFrom !== null && $check < $priceFrom) return null;
+                if ($priceTo   !== null && $check > $priceTo)   return null;
+            }
 
             return (object) [
                 'product_id'   => $p->id,

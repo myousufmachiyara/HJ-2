@@ -137,6 +137,8 @@ class PushProductsToShopify implements ShouldQueue
     /** Notes about pictures that could not be sent (shown in Sync History). */
     private array $pictureErrors = [];
 
+    private ?\App\Services\ShopifyPublisher $publisher = null;
+
     /** Sizes left out because another size of the same product has the identical option values. */
     public array $duplicateSizes = [];
 
@@ -175,6 +177,18 @@ class PushProductsToShopify implements ShouldQueue
         }
 
         $this->link($product, $gid);
+
+        // visible on the website: publish to the Online Store channel (products made through the API are in none)
+        $this->publisher ??= new \App\Services\ShopifyPublisher($this->store);
+        if ($pubErr = $this->publisher->publish($gid)) {
+            if ($pubErr === $this->publisher->problem()) {
+                // same reason for every product → say it once
+                $note = "Products were pushed but NOT published to the Online Store — {$pubErr}";
+                if (!in_array($note, $this->pictureErrors, true)) $this->pictureErrors[] = $note;
+            } else {
+                $this->pictureErrors[] = "{$product->sku}: pushed, but not published to the Online Store — {$pubErr}";
+            }
+        }
 
         if ($this->duplicateSizes) {
             $this->pictureErrors[] = "{$product->sku}: pushed, but " . count($this->duplicateSizes) . ' size(s) were left out because another size has the same option value — '

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\MeasurementUnit;
 use App\Models\ProductCategory;
+use App\Models\Product;
 use App\Models\ShopifyStore;
 use App\Models\ShopifySyncLog;
 use App\Jobs\ProcessShopifyImport;
@@ -381,6 +382,75 @@ class ShopifyStoreController extends Controller
         $log = ShopifySyncLog::create(['shopify_store_id' => $store->id, 'status' => 'pending', 'direction' => 'pictures']);
         \App\Jobs\PushShopifyPictures::dispatch($store, $log);
         return back()->with('success', "{$store->shop_name}: checking {$n} product(s) — pictures are added only where the Shopify product has none. See Sync History.");
+    }
+
+    /** Publish every product pushed from the software to the store's Online Store channel (shows them on the website). */
+    public function publishProducts($id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if (!$store->isConnected()) return back()->with('error', "{$store->shop_name} is not connected.");
+        $n = \App\Jobs\PublishProductsToShopify::query($store)->count();
+        if (!$n) return back()->with('error', "{$store->shop_name}: no product has been pushed/linked to this store yet.");
+
+        $log = ShopifySyncLog::create(['shopify_store_id' => $store->id, 'status' => 'pending', 'direction' => 'publish']);
+        \App\Jobs\PublishProductsToShopify::dispatch($store, $log);
+        return back()->with('success', "{$store->shop_name}: publishing {$n} product(s) to the Online Store. See Sync History.");
+    }
+
+    /** Sizes / SKUs that are in the software but missing on the product's Shopify page. */
+    public function missingSizes(Request $request)
+    {
+        $stores = ShopifyStore::orderBy('shop_name')->get()->filter->isConnected()->values();
+        $store  = $request->filled('store_id') ? $stores->firstWhere('id', (int) $request->store_id) : null;
+        $result = null;
+        $error  = null;
+
+        if ($store) {
+            @set_time_limit(900);
+            $limit = min(1000, max(1, (int) $request->input('limit', 200)));
+            $q = trim((string) $request->input('q'));
+            $products = Product::where('shopify_store_id', $store->id)->whereNotNull('shopify_product_id')
+                ->where('item_type', 'fg')->whereHas('variations')
+                ->when($q !== '', fn ($w) => $w->where(fn ($x) => $x->where('name', 'like', "%{$q}%")->orWhere('sku', 'like', "%{$q}%")
+                    ->orWhereHas('variations', fn ($v) => $v->where('sku', 'like', "%{$q}%"))))
+                ->when($request->filled('category_id'), fn ($w) => $w->where('category_id', $request->category_id))
+                ->with(['variations.attributeValues.attribute'])->orderBy('id')->limit($limit)->get();
+
+            try {
+                $result = (new \App\Services\ShopifyMissingVariants($store))->scan($products);
+            } catch (\Throwable $e) {
+                $error = "Could not read {$store->shop_name} from Shopify — " . $e->getMessage();
+            }
+            $scanned = $products->count();
+        }
+
+        return view('shopify.missing-sizes', [
+            'stores'     => $stores,
+            'store'      => $store,
+            'result'     => $result,
+            'scanned'    => $scanned ?? 0,
+            'scanError'  => $error,
+            'categories' => \App\Models\ProductCategory::orderBy('name')->get(['id', 'name']),
+        ]);
+    }
+
+    /** Send the ticked missing sizes to Shopify (queued; progress in Sync History). */
+    public function pushMissingSizes(Request $request, $id)
+    {
+        $store = ShopifyStore::findOrFail($id);
+        if (!$store->isConnected()) return back()->with('error', "{$store->shop_name} is not connected.");
+
+        $selection = [];
+        foreach ((array) $request->input('items', []) as $productId => $variationIds) {
+            $ids = array_values(array_filter(array_map('intval', (array) $variationIds)));
+            if ($ids) $selection[(int) $productId] = $ids;
+        }
+        if (!$selection) return back()->with('error', 'Tick at least one size to add.');
+
+        $log = ShopifySyncLog::create(['shopify_store_id' => $store->id, 'status' => 'pending', 'direction' => 'variants']);
+        \App\Jobs\PushMissingShopifyVariants::dispatch($store, $log, $selection);
+        return redirect()->route('shopify.settings')->with('success', 'Adding ' . array_sum(array_map('count', $selection)) . ' size(s) of ' . count($selection)
+            . " product(s) to {$store->shop_name}. Progress is in Sync History.");
     }
 
     /** Brands whose products belong to this store. */
