@@ -22,6 +22,7 @@
             <!-- Export button -->
             <a href="{{ route('products.bulk-export') }}" class="btn btn-warning me-2"><i class="fas fa-download"></i> Export</a>
             <a href="#bulkImportModal" class="modal-with-form btn btn-success me-2"><i class="fas fa-file-import"></i> Bulk Import</a>
+            <a href="#skuLookupModal" class="modal-with-form btn btn-info me-2"><i class="fas fa-list"></i> Get SKUs</a>
             <a href="{{ route('products.barcode.selection') }}" class="btn btn-danger"><i class="fas fa-barcode"></i> Barcodes</a>
             <a href="{{ route('products.create') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Products</a>
           </div>
@@ -103,6 +104,28 @@
         </div>
       </div>
     </section>
+
+    <!-- Get SKUs by product name -->
+    <div id="skuLookupModal" class="modal-block mfp-hide">
+      <section class="card">
+        <form action="{{ route('products.sku-lookup') }}" method="POST" enctype="multipart/form-data">
+          @csrf
+          <header class="card-header"><h2 class="card-title">Get SKUs &amp; Prices by Product Name</h2></header>
+          <div class="card-body">
+            <p class="text-muted mb-2">Paste product names, one per line (or upload a sheet with the names in the first column). You get an Excel file with
+              every variation's SKU, its price <b>before</b> and <b>after</b> discount, in the same order as your list. Names with no exact match
+              show products containing that text (marked <i>Partial</i>); unknown names show <i>Not found</i>.</p>
+            <textarea name="names" rows="9" class="form-control mb-3" placeholder="Girls Kurta Shalwar Rose&#10;Boys Waistcoat Navy&#10;..."></textarea>
+            <label class="form-label">or upload a sheet (.xlsx / .csv)</label>
+            <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.csv,.txt">
+          </div>
+          <footer class="card-footer text-end">
+            <button type="submit" class="btn btn-info"><i class="fas fa-file-excel"></i> Download Excel</button>
+            <button type="button" class="btn btn-default modal-dismiss">Cancel</button>
+          </footer>
+        </form>
+      </section>
+    </div>
 
     <!-- Bulk Import Modal -->
     <div id="bulkImportModal" class="modal-block mfp-hide">

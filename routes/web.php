@@ -81,6 +81,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/fabric-options',                      [\App\Http\Controllers\FabricArticleController::class, 'optionsForArticle'])->name('fabric.options');
     Route::get('/products/next-sku/{category}',          [ProductController::class, 'nextSku'])->name('products.next-sku');
     Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
+    Route::post('/products/sku-lookup',        [\App\Http\Controllers\SkuLookupController::class, 'download'])->name('products.sku-lookup')->middleware('check.permission:products.index');
     Route::get('/products/bulk-price',         [\App\Http\Controllers\BulkPriceController::class, 'index'])->name('bulk-price.index')->middleware('check.permission:products.edit');
     Route::post('/products/bulk-price/export', [\App\Http\Controllers\BulkPriceController::class, 'updateAndExport'])->name('bulk-price.export')->middleware('check.permission:products.edit');
     // ── Bulk fix of product categories (sheet → review → apply) ──────────
